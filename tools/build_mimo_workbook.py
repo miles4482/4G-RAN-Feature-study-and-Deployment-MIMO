@@ -67,6 +67,10 @@ def main():
     wb.save(OUT)
     print("ok", os.path.getsize(OUT), "sheets", len(wb.worksheets))
 
+    # v2.0 = v1 + last-sheet dump inconsistency (does not overwrite v1)
+    from build_incon_report import main as build_v2
+    build_v2()
+
 
 if __name__ == "__main__":
     main()
