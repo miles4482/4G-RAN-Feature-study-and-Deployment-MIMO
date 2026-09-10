@@ -348,7 +348,7 @@ DUMP_ROWS = [
     ("S15-12", "Step5", "BEAM_SELECT_OPT_SW", "OFF 564/564", "Missing", "No", "Also iBeam 1.0 child.", "Enable with iBeam pack (CR01)", "FOFD-081201"),
     ("S15-13", "Step6", "AHR_PHASE1 + FD/TYPE0/8PORT + CSIRS_INTRF_STATIC_AVOID", "Phase1 ON 563/564", "Already ON", "Yes", "AHR introduction live.", "Skip", "FOFD-051301"),
     ("S15-14", "Step6", "AHR_EXP_TURBO_PHASE2 master", "ON 563/564", "Already ON", "Yes", "Turbo master live.", "Skip master", "FOFD-061201"),
-    ("S15-14", "Step6", "SRS_IC_SW", "OFF 564/564", "Missing", "No", "Turbo child off. Tight MUX is in CR01.", "Hold this night (do not stack with CR01 tight MUX)", "FOFD-061201"),
+    ("S15-14", "Step6", "SRS_IC_SW", "OFF 564/564", "Hold", "No", "Turbo child off. Tight MUX is in CR01.", "Hold this night (do not stack with CR01 tight MUX)", "FOFD-061201"),
     ("S15-14", "Step6", "SRS_JOINT_PC_SW", "OFF 564/564 (CR01 Proposed ON 30)", "Partial", "No (cluster) / Yes (CR01)", "Joint PC without IC.", "Enable on trial (CR01); not cluster yet", "FOFD-061201"),
     ("S15-15", "Step6", "AHR_CAPC_UPGRADE_PHASE2 + PDCCH_MULTI_DIM_JOINT_SCH", "OFF 564/564", "Hold", "No", "Capacity wave never started.", "After Turbo SRS-IC + iBeam 1.0 green", "NR0S00ACT200"),
     ("S15-16", "Step7", "HighPrecisionBeamSwitch", "OFF 564/564 (CR01 ON 30)", "Missing", "No (cluster)", "Main missing DL-interference master.", "Enable (CR01 10 sites). LST NR0S00BEAM00", "FOFD-081201"),
@@ -627,8 +627,13 @@ def build_combined(wb):
     r += 1
     mml_start = r
     sn = 1
+    # Do not put Hold-this-night switches in the send list (Section 2 already marks them Hold).
+    skip_enable = ("SRS_IC_SW",)  # CR01 tight MUX is in this proposal
     for rec in incon_mml_rows():
         if rec[3] not in ("Enable", "Fix"):
+            continue
+        cmd = str(rec[4] or "")
+        if rec[3] == "Enable" and any(k in cmd for k in skip_enable):
             continue
         new = (sn,) + rec[1:]
         # reuse 11-col painter then pad cols 12-13
@@ -638,6 +643,22 @@ def build_combined(wb):
             ws.cell(r - 1, c).border = thin
         sn += 1
     ws.auto_filter.ref = f"A{mml_start - 1}:K{r - 1}"
+
+    r = blank(ws, r, 8)
+    r = subsection(ws, r, COLS, "Still OFF — Hold this night (not in the trial MML above)", fill_hex="C65911")
+    r = note_bar(ws, r, COLS,
+                 "These are not enabled on the cluster either, but they are not the Section 3 send list. "
+                 "SRS_IC stays Hold while CR01 SRS_TIGHT_MULTIPLEXING is ON. PMI/open-loop stay Hold while SRS weight is ON.")
+    r = headers(ws, r, ["SN", "Suggestion", "Parameter / switch", "Dump status", "Why Hold", "When"] + [""] * 7)
+    holds = [x for x in DUMP_ROWS if x[4] in ("Hold",)]
+    for i, rec in enumerate(holds, 1):
+        sid, fam, param, live, status, enabled, gap, action, lic = rec
+        vals = [i, sid, param, status, gap, action]
+        r = putn(ws, r, vals, fills=[ST_FILL["Hold"]] * COLS, bolds=[False, True, False, True],
+                 center={1, 2, 4}, height=28)
+        merge(ws, r - 1, 6, r - 1, COLS)
+        if sid in box_rows:
+            href_row(ws.cell(r - 1, 2), SHEET_NAME, box_rows[sid], sid)
 
     r = blank(ws, r, 8)
     r = bullets(ws, r, COLS, [
