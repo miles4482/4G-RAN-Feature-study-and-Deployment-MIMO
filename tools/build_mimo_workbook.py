@@ -72,9 +72,11 @@ def main():
     from build_incon_report import main as build_v2
     from build_suggestions_sheet import main as build_v3
     from build_cr01_sheet import main as build_v4
+    from build_combined_sheet import main as build_v5
     build_v2()
     build_v3()
     build_v4()
+    build_v5()
 
 
 if __name__ == "__main__":

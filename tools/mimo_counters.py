@@ -373,31 +373,31 @@ COUNTERS = {
          "ERROR_INSUFFICIENT_DATA if no RSSI samples.",
          "Need cells in service."),
     ],
-    "14. MIMO Incon Report": [
-        ("User DL Average Throughput (DU)", "Primary trial KPI",
-         "Dump vs commercial goal. Same BH, trial vs neighbour control.",
-         "CR01 10-site pack is the first execution of sheet-14 Enables."),
-        ("User UL Average Throughput (DU)", "UL sister KPI",
-         "UL_LOW_NOISE + PUSCH CE + UL rank (CR01).",
+    "14. MIMO Suggest + Incon": [
+        ("N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "User DL Average Throughput (DU)",
+         "North-star for Section 1 DL boxes and Section 3 trial.",
+         "Same BH, trial vs neighbour 32T control."),
+        ("N.ThpVol.UL / N.RLC.ThpTime.UL.Cell", "User UL Average Throughput (DU)",
+         "UL boxes and SRS→DL weights.",
          "Must not pay for DL gain with UL collapse."),
-        ("DL IBLER (N.DL.SCH.*.ErrTB.Ibler / TB)", "DL residual BLER",
-         "iBeam interference pack.",
-         "Hold within planned ±0.5–1 pp vs control."),
-        ("N.ChMeas.MIMO.DL.Pair.Layer.Avg", "DL MU pair layers",
-         "Precise/anti-intrf MU sch.",
-         "Quality over raw count."),
-        ("N.CCE.DL.AllocReq.Num / AggLvl*", "PDCCH blocking / agg mix",
+        ("N.DL.SCH.*.ErrTB.Ibler / N.DL.SCH.*.TB", "DL IBLER",
+         "iBeam / MU extras in Section 3.",
+         "Hold within planned band vs control."),
+        ("N.UL.SRS.PreSINR.* / N.SRS.NI.Avg", "SRS quality / NI",
+         "Weights + tight MUX + joint PC (no SRS_IC).",
+         "NI jump = stop."),
+        ("N.CCE.DL.AllocReq.Num / AggLvl*", "PDCCH CCE / agg mix",
          "PDCCH_AGG_LVL_COMPR.",
          "Blocking up = fail."),
-        ("N.UL.SRS.PreSINR.* / N.SRS.NI.Avg", "SRS quality",
-         "SRS_WEIGHT_ESTIMATE + TIGHT_MULTIPLEXING + JOINT_PC (no SRS_IC).",
-         "NI jump = stop, do not add SRS_IC same night."),
-        ("N.ChMeas.PDSCH.MCS.k / N.PDSCH.InitTbDl.Rank*", "MCS / rank",
-         "Beam tracking + weights.",
-         "Mobility cells are the tell."),
-        ("N.UECntx.AbnormRel / HOSR (cluster KPI)", "Drop / HO success",
-         "SSB_BEAM_ADAPT safety.",
-         "Rollback SSB bits first."),
+        ("N.ChMeas.MIMO.DL.Pair.Layer.Avg", "DL MU pair layers",
+         "Precise/anti-intrf MU sch.",
+         "Quality gated by IBLER."),
+        ("N.User.OptimalSSBBeam.Avg", "Optimal SSB users",
+         "SSB adapt + tracking.",
+         "Drop/HO are rollback."),
+        ("N.UECntx.AbnormRel / N.RRC.ReEst.Att", "Drop / re-establish",
+         "Safety for combined W1+W3 night.",
+         "Any rise vs control → rollback."),
     ],
     "15. MIMO Suggestions from Doc": [
         ("User DL Average Throughput (DU)", "Benefit KPI of every DL box",
@@ -507,7 +507,12 @@ NOTES = {
 def _sheet_has_section(ws):
     for row in ws.iter_rows(min_col=1, max_col=1, min_row=1, max_row=ws.max_row or 1):
         v = row[0].value
-        if v and str(v).strip() == SECTION_TITLE:
+        if not v:
+            continue
+        s = str(v).strip()
+        if s == SECTION_TITLE:
+            return True
+        if s == "Section 4.  Performance counter and Monitoring KPI":
             return True
     return False
 
@@ -579,6 +584,7 @@ def append_counters_to_all_sheets(wb):
     """Walk every worksheet and append the section if missing."""
     for ws in wb.worksheets:
         key = ws.title
-        cols = 11 if key.startswith("14.") or key.startswith("16.") else 10
+        cols = 13 if "Suggest + Incon" in key else (
+            11 if key.startswith("14.") or key.startswith("15.") or key.startswith("16.") else 10)
         print("  counters:", key)
         add_perf_monitor(ws, r=None, cols=cols, sheet_key=key)
