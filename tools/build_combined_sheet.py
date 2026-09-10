@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Build MIMO_Deployment_v5.0.xlsx from v4.0.
+"""Build MIMO_Deployment_v6.0.xlsx from v4.0.
 
 Combines former sheets 14 (Incon) + 15 (Suggestions) into one sheet:
 
-  Section 1  Document suggestions (boxes; MML + Counter monitor / Impact on KPI / short Notes;
-             Jump renamed to Jump to Basic)
-  Section 2  Incon for those suggestions (dump: already enabled or not)
-  Section 3  Final proposal — trial/implement what is NOT enabled
-  Section 4  Performance counter and Monitoring KPI
+  Section 1  Document suggestions (boxes; each MML row has dump Live / status / Enabled? / Action
+             plus Counter monitor / Impact on KPI / short Notes / Jump to Basic)
+  Section 2  Final proposal — trial/implement what is NOT enabled
+  Section 3  Performance counter and Monitoring KPI
 
-CR01 stays as sheet 15 (was 16). v1–v4 files are unchanged.
+No separate dump-incon section — that check lives on the MML row.
+CR01 stays as sheet 15 (was 16). v1–v5 files are unchanged.
 """
-import os, shutil, zipfile, sys
+import os, re, shutil, zipfile, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from openpyxl import load_workbook
 from openpyxl.styles import Border, Side, Font
@@ -24,8 +24,8 @@ from mimo_counters import append_counters_to_all_sheets
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC = os.path.join(ROOT, "MIMO_Deployment_v4.0.xlsx")
-OUT = os.path.join(ROOT, "MIMO_Deployment_v5.0.xlsx")
-ZIP_OUT = os.path.join(ROOT, "MIMO_Deployment_v5.0.zip")
+OUT = os.path.join(ROOT, "MIMO_Deployment_v6.0.xlsx")
+ZIP_OUT = os.path.join(ROOT, "MIMO_Deployment_v6.0.zip")
 
 SHEET_NAME = "14. MIMO Suggest + Incon"  # 24 chars
 CR01_OLD = "16. CR01 MIMO Exec Pack"
@@ -33,9 +33,10 @@ CR01_NEW = "15. CR01 MIMO Exec Pack"
 OLD14 = "14. MIMO Incon Report"
 OLD15 = "15. MIMO Suggestions from Doc"
 
-COLS = 13
-WIDTHS = [8, 22, 16, 16, 20, 22, 34, 26, 18, 24, 14, 12, 16]
-# 1=SN, 2-6=MML, 7=Counter, 8=KPI impact, 9-10=short Notes, 11-13=Jump to Basic
+COLS = 14
+WIDTHS = [7, 16, 18, 22, 20, 14, 12, 24, 28, 22, 16, 18, 12, 14]
+# 1=MML#, 2-4=MML, 5=Live dump, 6=Dump status, 7=Enabled?, 8=Action,
+# 9=Counter, 10=KPI, 11-12=short Notes, 13-14=Jump to Basic
 
 BLUE_HDR = "5B9BD5"
 YELLOW_HDR = "FFC000"
@@ -328,12 +329,15 @@ DUMP_ROWS = [
     ("S15-01", "Step1", "DL_PMI_SRS_ADAPT_SW", "ON 564/564", "Already ON", "Yes", "Matches commercial.", "Skip — do not re-send", "FBFD-010003"),
     ("S15-01", "Step1", "BeamPerceiveMode=DISTRIBUTED_MODE", "DISTRIBUTED_MODE 564/564", "Already ON", "Yes", "Prerequisite of weight opt is live.", "Skip", "FBFD-010003"),
     ("S15-01", "Step1", "FR1MaxCellCsirsPortNum=8PORT / TYPE0 / FD_RESOURCE", "8PORT+TYPE0+FD ON", "Already ON", "Yes", "CSI baseline live.", "Skip", "AHR/CSI"),
+    ("S15-01", "Step1", "SrsWeightValidityPeriod=MS400", "See LST NRDUCELLPDSCHPRECODE", "Check", "See dump", "Timer, not a missing switch.", "LST only", "FBFD-010003"),
+    ("S15-01", "Step1", "SrsNonASFixedWeightType=PMI_WEIGHT", "Needs ADAPT=ON (already ON)", "Already ON", "Yes", "Non-AS PMI when SRS missing.", "Skip", "FBFD-010003"),
     ("S15-02", "Step1", "SRS_WEIGHT_ESTIMATE_SW", "OFF 564/564", "Missing", "No", "Largest basic-MIMO leftover.", "Enable (CR01 30/30)", "FBFD-010003"),
     ("S15-02", "Step1", "PMI_WEIGHT_OPT_SW", "OFF 564/564", "Hold", "No", "Missing vs FPD but mix with SRS tonight.", "Hold first night", "FBFD-010003"),
     ("S15-02", "Step1", "OPEN_LOOP_WEIGHT_OPT_SW", "OFF 564/564", "Hold", "No", "Same mix rule.", "Hold first night", "FBFD-010003"),
     ("S15-03", "Step1", "SRS_SINR_MEAS_OPT_SW", "OFF 564/564", "Missing", "No", "FPD example ON.", "Enable (CR01 30/30)", "FBFD-010003"),
     ("S15-03", "Step1", "UL_RANK_FAST_DECREASE_SW", "OFF 564/564", "Missing", "No", "Protects UL BLER.", "Enable (CR01 30/30)", "FBFD-010003"),
     ("S15-03", "Step1", "PUSCH_CE_SINR_LEVEL_ENH_SW", "OFF 564/564", "Missing", "No", "PUSCH CE enhance.", "Enable (CR01 30/30)", "FBFD-010003"),
+    ("S15-03", "Step1", "SrsPreSinrJudgeThld / CHN_MEASURE_CPU_DEC", "Not a sheet-14 Major", "Check", "See dump", "Threshold / gNB CPU bit — LST.", "LST only", "FBFD-010003"),
     ("S15-04", "Step1", "DlSchOptTimeThld / DlAdaptSchTimeThld", "Not a sheet-14 Major", "Check", "See dump", "Timers, not a missing switch pack.", "LST only if tput stuck", "—"),
     ("S15-05", "Step2", "MaxMimoLayerNum / DL_RANK_ADAPT / SU multi-layer", "LAYER_16 557/564; SU ON 564; rank adapt ON", "Already ON", "Yes", "Better than FPD LAYER_8 sample.", "Skip — never send LAYER_8", "FOFD-010020"),
     ("S15-06", "Step2", "SU_DMRS_OH_ADAPT / SRS_PRECODE_OPT / JT", "Not the DL-tput gap", "Check", "Partial", "Optional SU helpers; JT only if intended.", "Do not send JT cluster-wide", "FOFD-010020"),
@@ -364,21 +368,148 @@ DUMP_ROWS = [
     ("S15-25", "Step3", "FREQ_SEL_SCH / LOAD_BASED_DL_EXP_SCH / SMART_SCH / HIGH_CAPACITY_EXP", "All OFF 564/564", "Hold", "No", "Beyond iBeam 1.0 minimum.", "After CSI/iBeam 1.0 green; license+TAC for smart/high-cap", "Performance pack"),
 ]
 
+# Extra keywords so each MML line hits the right dump row (param text is often a summary).
+PARAM_ALIASES = {
+    "iBeam 1.0 children (tight MUX, precise/anti-intrf MU, tail MCS, res-based, agg-compress, blind IS, BWP hybrid IR, RLC merge)": (
+        "SRS_BLIND_IS_MEAS", "SRS_TIGHT_MULTIPLEXING", "DL_BWP_HYBRID_INTRF_RANDOM",
+        "DL_RLC_STAT_RPT_MERGE", "PDCCH_AGG_LVL_COMPR", "BEAM_SELECT_OPT",
+        "DL_MU_PRECISE_SCH", "DL_MU_ANTI_INTRF", "TAIL_PKT_MCS_OPT", "RES_BASED_DL_ADAPT_SCH",
+    ),
+    "Tilt / Azimuth (RF)": ("Tilt", "Azimuth"),
+    "DL_INITIAL_BEAM_SELECT / SSB density adapt / CoverageScenario": (
+        "DL_INITIAL_BEAM_SELECT", "CoverageScenario", "SsbPeriod", "CsiPeriod",
+        "PDCCH_BEAM_ROBUST", "PdcchBeamRobDtxThld", "SRS_BEAM_SELECT_OPT", "PdcchPrecodeEnhPolicy",
+    ),
+    "AHR_PHASE1 + FD/TYPE0/8PORT + CSIRS_INTRF_STATIC_AVOID": (
+        "AHR_PHASE1", "CSIRS_INTRF_STATIC_AVOID", "FD_RESOURCE", "TYPE0",
+        "EXP_BASED_MM_ADAPT", "RES_BASED_MM_ADAPT", "FixedAmcStepValue", "DlInitialMcsAdjValue",
+        "DlDelaySchBufferThld",
+    ),
+    "AHR_EXP_TURBO_PHASE2 master": (
+        "AHR_EXP_TURBO_PHASE2", "TAIL_PKT_SCH_OPT", "DL_MCS_ADJ_OPT", "RANK_AND_SINR_ESTIMATE_OPT",
+        "SrsIntrfThld", "IntrfUeSrsPcMinSinrTarget", "MaxSrsPoAdjustAmount",
+    ),
+    "UL_LOW_NOISE_SW + UL_MU_GRP_PAIR + DIFF_WAVEFORM + CORR_ACCEL": (
+        "UL_LOW_NOISE_SW", "UL_MU_GRP_PAIR", "DIFF_WAVEFORM_PAIR", "UL_CORR_ACCELERATION",
+        "PUSCH_RES_ADAPT_ALLOC", "UL_PREALLOCATION_PERIOD_ADJ", "UL_CELL_OLLA",
+        "SMALL_PKT_OL_ADAPT", "SR_BASED_SCH_MCS_OPT", "SinrThldforWaveformSel",
+        "PDCCH_SYM_SMART_ALLOC", "CCE_SYMBOL_ALLOC_OPT", "F1_ACK_CODE_CHN_INTRF",
+        "IRC_BASED_PDP_DETECT",
+    ),
+    "HighPrecisionBeamPhase2Sw / DL_ROBUST_WEIGHT": (
+        "HighPrecisionBeamPhase2", "DL_ROBUST_WEIGHT", "RobustWtPhaseCalcMethod",
+        "DYNAMIC_CLUSTER_GROUP", "PRECISE_MUMIMO_EVAL", "FAR_UE_RANK_OPT",
+        "DL_CORR_ACCELERATION", "INTER_CELL_INTRF_AVOID", "MuMimoIblerTarget",
+    ),
+    "HighPrecisionBeamPhase3Sw / DL_SELF_FUSION_WEIGHT": (
+        "HighPrecisionBeamPhase3", "DL_SELF_FUSION_WEIGHT", "SelfFusionWt",
+        "PDCCH_ROBUST_WEIGHT", "DL_SMART_AMC",
+    ),
+    "UL_LOW_NOISE_PHASE2_SW": (
+        "UL_LOW_NOISE_PHASE2", "PUSCH_COORD_PWR_CTRL", "INTRF_SC_LINK_PERF_PC",
+        "UlCpcUeSsbRsrpThld", "UL_RETRANS_PREC_RB", "UlFirstRetransMinRbPct",
+        "UL_PRECISE_MCS_OPT", "MULTI_BEAM_RX_ENH", "INTRF_PREC_FREQ_OFS", "PREC_CHANNEL_EST",
+    ),
+    "MMIMO_MULTILAYER_ENHANCE / PAIRING_PREFERRED / MU_RANK_BOOSTING / SRS_MEAS_ACCELERATING": (
+        "MMIMO_MULTILAYER_ENHANCE", "MU_RANK_BOOSTING", "SRS_BLIND_IS_SW", "SrsBlindIsDegree",
+        "MU_MIMO_PAIRING_PREFERRED", "SRS_MEAS_ACCELERATING", "DL_HYBRID_PRECODING",
+        "TAIL_PKT_MCS_OPT", "SmallPktType1RobustSchPol", "DlMuBackToSuSeThld",
+        "PUCCH_INTRF_COORD", "CCE_RESOURCE_OPT", "UE_BWP0_PDSCH_RES_OPT", "PDCCH_BLIND_DET",
+    ),
+    "UL MULTILAYER_DEMOD_ENH / FLEX_PAIR / RES_BASED_ULSCH": (
+        "MULTILAYER_DEMOD_ENH", "MU_MIMO_FLEX_PAIR", "RES_BASED_ADAPT_ULSCH",
+        "LATENCY_BASED_ADAPT_ULSCH", "UL_SU_SINR_INTEL_PREDICT",
+    ),
+    "AHR_CAPC_UPGRADE_PHASE2 + PDCCH_MULTI_DIM_JOINT_SCH": (
+        "AHR_CAPC_UPGRADE_PHASE2", "MuMimoOptSwith", "DlMuGatherOptSw",
+        "PDCCH_MULTI_DIM_JOINT_SCH", "DlMuIRPrecodePol", "DlSrsMuMimoPreSinrThld",
+    ),
+    "DL_MU / UL_MU / PDCCH_MU + isolation −50 / group ISOLATION_CORRELATION": (
+        "UL_MU_MIMO", "DL_MU_MIMO", "PDCCH_MU", "DlPmiMuMimoSpaceIsoThld",
+        "DlSrsMuMimoSpaceIsoThld", "DlMuMimoSrsPreSinrThld", "ISOLATION_CORRELATION",
+        "UlMuMimoCorrThld", "UlMuMimoSinrThld", "DlMuBackToSuSeThld",
+    ),
+    "HEAVY_LOAD_SCH_PRI_OPT + MU ranks / DMRS policy": (
+        "HEAVY_LOAD_SCH_PRI_OPT", "MaxPairLayerNum", "DlMuMimoSirScaleFactor",
+        "DlMuPmiBeamNumThld", "DlMuEstRbPolicy", "DlSrsMuMimoRank", "DlPmiMuMimoRank",
+        "PrecodingIntrfSupprValue",
+    ),
+    "MaxMimoLayerNum / DL_RANK_ADAPT / SU multi-layer": (
+        "MaxMimoLayerCnt", "MaxMimoLayerNum", "DL_RANK_ADAPT", "SuMimoPwrCtrlProtectThld",
+    ),
+    "SU_DMRS_OH_ADAPT / SRS_PRECODE_OPT / JT": (
+        "SU_DMRS_OH_ADAPT", "SRS_PRECODE_OPT", "INTRA_GNB_DL_JT",
+    ),
+    "DM_MIMO_SERVICE_SWITCH": ("DM_MIMO", "TxRxMode", "TrpType"),
+    "Fusion INTRA_CELL_MIMO": ("INTRA_CELL_MIMO", "MUMIMO_SINR_ENH", "FUSION_CALIB", "SINGLE_TRP_SSB"),
+    "FR2 mmWave MOs / VOL_BASED_BEAM_MULTIPLEX": (
+        "NRDUCELLTRPMMWAVBEAM", "VOL_BASED_BEAM_MULTIPLEX", "FLEXIBLE_DENSE_BEAM",
+        "DYNAMIC_BEAM_ALLOC", "SHORT_TAC_PERIOD", "SSB_MEAS_POS_POLICY",
+    ),
+    "STR ANTENNAPORTOPTDET": ("ANTENNAPORTOPTDET",),
+    "FREQ_SEL_SCH / LOAD_BASED_DL_EXP_SCH / SMART_SCH / HIGH_CAPACITY_EXP": (
+        "FREQ_SEL_SCH", "LOAD_BASED_DL_EXP_SCH", "SMART_SCH_AND_LINK_ADAPT", "HIGH_CAPACITY_EXP_IMP",
+    ),
+    "BEAM_TRACKING + INTELLIGENT_BEAM_SELECTION": ("BEAM_TRACKING", "INTELLIGENT_BEAM_SELECTION"),
+    "SSB_BEAM_ADAPT + SSB_BEAM_VERTICAL_COV_IMP": ("SSB_BEAM_ADAPT", "SSB_BEAM_VERTICAL_COV"),
+    "SrsPreSinrJudgeThld / CHN_MEASURE_CPU_DEC": ("SrsPreSinrJudgeThld", "CHN_MEASURE_CPU_DEC"),
+}
+
+TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{4,}")
+DUMP_NONE = ("", "", "See LST", "Check", "See dump", "", "", "LST to confirm", "")
+
+
+def _keys_for_param(param):
+    keys = list(TOKEN_RE.findall(param)) + list(PARAM_ALIASES.get(param, ()))
+    for part in re.split(r"[^A-Za-z0-9_]+", param):
+        if len(part) >= 5:
+            keys.append(part)
+    return keys
+
+
+def dump_for(sid, cmd):
+    """Map one MML command to the dump row for that suggestion (already enabled or not)."""
+    if "Tilt=255" in cmd:
+        rows_sid = [row for row in DUMP_ROWS if row[0] == sid]
+        if rows_sid and rows_sid[0][4] == "N/A":
+            return rows_sid[0]
+        same = [row for row in rows_sid if row[4] == "Fix"]
+        anyfix = [row for row in DUMP_ROWS if row[4] == "Fix"]
+        if same:
+            return same[0]
+        if anyfix:
+            return anyfix[0]
+    rows = [r for r in DUMP_ROWS if r[0] == sid]
+    scored = []
+    for row in rows:
+        hitlen = 0
+        for k in _keys_for_param(row[2]):
+            if k and k in cmd:
+                hitlen = max(hitlen, len(k))
+        if hitlen:
+            scored.append((hitlen, row))
+    if scored:
+        scored.sort(key=lambda x: -x[0])
+        return scored[0][1]
+    if len(rows) == 1:
+        return rows[0]
+    return rows[0] if rows else DUMP_NONE
+
 
 def add_box(ws, r, rec, sheet_name):
     start = r
     fam = rec["family"]
     color = FAMILY_COLOR.get(fam, NAVY)
-    merge(ws, r, 1, r, 10)
+    merge(ws, r, 1, r, 11)
     put(ws, r, 1, f"  {rec['sid']}   ·   {rec['title']}", size=12, bold=True, color=WHITE,
         fill_hex=color, h="left", v="center")
-    for c in range(2, 11):
+    for c in range(2, 12):
         ws.cell(r, c).fill = fill(color)
-    put(ws, r, 11, "Read benefit →", size=9, bold=True, color=WHITE, fill_hex=color, h="right", v="center")
-    merge(ws, r, 12, r, 13)
-    href_sheet(ws.cell(r, 12), rec["jump"], rec["jump"])
-    ws.cell(r, 12).fill = fill("FFF2CC")
+    put(ws, r, 12, "Read benefit →", size=9, bold=True, color=WHITE, fill_hex=color, h="right", v="center")
+    merge(ws, r, 13, r, 14)
+    href_sheet(ws.cell(r, 13), rec["jump"], rec["jump"])
     ws.cell(r, 13).fill = fill("FFF2CC")
+    ws.cell(r, 14).fill = fill("FFF2CC")
     ws.row_dimensions[r].height = 24
     r += 1
     merge(ws, r, 1, r, COLS)
@@ -392,55 +523,56 @@ def add_box(ws, r, rec, sheet_name):
     r = label_row(ws, r, "Benefit", rec["benefit"], PALE_GREEN)
     r = label_row(ws, r, "Parameter details", rec["params"], "DDEBF7")
 
-    # MML header: # | command | Counter monitor | Impact on KPI | short Notes | Jump to Basic
-    hdr = [
-        (1, "MML #", BLUE_HDR, False, False),
-        (2, "MML Command  (one parameter / one switch / one line)  +  note at end", YELLOW_HDR, 2, 6),
-        (7, "Counter monitor", TEAL_HDR, False, False),
-        (8, "Impact on KPI", GOLD_HDR, False, False),
-        (9, "short Notes", "F4B183", 9, 10),
-        (11, "Jump to Basic", YELLOW_HDR, 11, 13),
-    ]
+    # MML header: # | command | Live dump | Dump status | Enabled? | Action | Counter | KPI | Notes | Jump
     for col in range(1, COLS + 1):
-        put(ws, r, col, "", size=9, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
-    put(ws, r, 1, "MML #", size=9, bold=True, fill_hex=BLUE_HDR, h="center", v="center", border=True)
-    merge(ws, r, 2, r, 6)
+        put(ws, r, col, "", size=8, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
+    put(ws, r, 1, "MML #", size=8, bold=True, fill_hex=BLUE_HDR, h="center", v="center", border=True)
+    merge(ws, r, 2, r, 4)
     put(ws, r, 2, "MML Command  (one parameter / one switch / one line)  +  note at end",
-        size=9, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
-    put(ws, r, 7, "Counter monitor", size=9, bold=True, color=WHITE, fill_hex=TEAL_HDR, h="center", v="center", border=True)
-    put(ws, r, 8, "Impact on KPI", size=9, bold=True, fill_hex=GOLD_HDR, h="center", v="center", border=True)
-    merge(ws, r, 9, r, 10)
-    put(ws, r, 9, "short Notes", size=9, bold=True, fill_hex="F4B183", h="center", v="center", border=True)
-    ws.cell(r, 10).fill = fill("F4B183")
-    merge(ws, r, 11, r, 13)
-    put(ws, r, 11, "Jump to Basic", size=9, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
-    ws.cell(r, 12).fill = fill(YELLOW_HDR)
-    ws.cell(r, 13).fill = fill(YELLOW_HDR)
-    ws.row_dimensions[r].height = 24
+        size=8, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
+    put(ws, r, 5, "Live DHK dump (32T)", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
+    put(ws, r, 6, "Dump status", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
+    put(ws, r, 7, "Enabled?", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
+    put(ws, r, 8, "Action", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
+    put(ws, r, 9, "Counter monitor", size=8, bold=True, color=WHITE, fill_hex=TEAL_HDR, h="center", v="center", border=True)
+    put(ws, r, 10, "Impact on KPI", size=8, bold=True, fill_hex=GOLD_HDR, h="center", v="center", border=True)
+    merge(ws, r, 11, r, 12)
+    put(ws, r, 11, "short Notes", size=8, bold=True, fill_hex="F4B183", h="center", v="center", border=True)
+    ws.cell(r, 12).fill = fill("F4B183")
+    merge(ws, r, 13, r, 14)
+    put(ws, r, 13, "Jump to Basic", size=8, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
+    ws.cell(r, 14).fill = fill(YELLOW_HDR)
+    ws.row_dimensions[r].height = 28
     r += 1
 
     for i, (cmd, note) in enumerate(rec["mmls"], 1):
         line = mml_line(cmd, note)
         ctr, kpi, short = extras(cmd, note)
+        drow = dump_for(rec["sid"], cmd)
+        live, status, enabled, action = drow[3], drow[4], drow[5], drow[7]
+        st_fill = ST_FILL.get(status, WHITE)
         fh = WHITE if i % 2 else ROW_ALT
         put(ws, r, 1, i, size=9, bold=True, fill_hex=fh, h="center", v="top", border=True)
-        merge(ws, r, 2, r, 6)
+        merge(ws, r, 2, r, 4)
         put(ws, r, 2, line, size=8, fill_hex=fh, h="left", v="top", border=True)
-        for c in range(3, 7):
+        for c in range(3, 5):
             ws.cell(r, c).fill = fill(fh)
             ws.cell(r, c).border = thin
-        put(ws, r, 7, ctr, size=8, fill_hex="D5F5E3", h="left", v="top", border=True)
-        put(ws, r, 8, kpi, size=8, fill_hex="FFF2CC", h="left", v="top", border=True)
-        merge(ws, r, 9, r, 10)
-        put(ws, r, 9, short, size=8, fill_hex="FDEBD0", h="left", v="top", border=True)
-        ws.cell(r, 10).fill = fill("FDEBD0")
-        ws.cell(r, 10).border = thin
-        merge(ws, r, 11, r, 13)
-        href_sheet(ws.cell(r, 11), rec["jump"], rec["jump"])
-        ws.cell(r, 11).fill = fill("FFF2CC")
-        ws.cell(r, 12).fill = fill("FFF2CC")
+        put(ws, r, 5, live, size=8, fill_hex=st_fill, h="left", v="top", border=True)
+        put(ws, r, 6, status, size=8, bold=True, fill_hex=st_fill, h="center", v="top", border=True)
+        put(ws, r, 7, enabled, size=8, bold=True, fill_hex=st_fill, h="center", v="top", border=True)
+        put(ws, r, 8, action, size=8, fill_hex=st_fill, h="left", v="top", border=True)
+        put(ws, r, 9, ctr, size=8, fill_hex="D5F5E3", h="left", v="top", border=True)
+        put(ws, r, 10, kpi, size=8, fill_hex="FFF2CC", h="left", v="top", border=True)
+        merge(ws, r, 11, r, 12)
+        put(ws, r, 11, short, size=8, fill_hex="FDEBD0", h="left", v="top", border=True)
+        ws.cell(r, 12).fill = fill("FDEBD0")
+        ws.cell(r, 12).border = thin
+        merge(ws, r, 13, r, 14)
+        href_sheet(ws.cell(r, 13), rec["jump"], rec["jump"])
         ws.cell(r, 13).fill = fill("FFF2CC")
-        ws.row_dimensions[r].height = min(56, max(26, 16 + len(line) // 120 * 12))
+        ws.cell(r, 14).fill = fill("FFF2CC")
+        ws.row_dimensions[r].height = min(56, max(28, 16 + len(line) // 100 * 12))
         r += 1
     end = r - 1
     box_border(ws, start, end)
@@ -450,19 +582,19 @@ def add_box(ws, r, rec, sheet_name):
 
 def patch_cover(wb):
     ws = wb["0. Cover & Index"]
-    ws["A1"].value = "  5G MIMO (all features together)  —  Deployment Workbook  v5.0"
+    ws["A1"].value = "  5G MIMO (all features together)  —  Deployment Workbook  v6.0"
     r = ws.max_row + 2
-    r = section(ws, r, 10, "v5.0 — sheets 14 + 15 combined (suggestion + dump incon in one place)")
+    r = section(ws, r, 10, "v6.0 — dump status sits on each suggestion MML row (no separate incon section)")
     r = note_bar(ws, r, 10,
-                 "Former “14. MIMO Incon Report” and “15. MIMO Suggestions from Doc” are now one sheet: "
-                 f"{SHEET_NAME}. Section 1 = FPD suggestion boxes (MML + Counter monitor / Impact on KPI / short Notes; "
-                 "Jump to Basic). Section 2 = dump check (already enabled or not). Section 3 = final trial proposal "
-                 "for what is still OFF. Section 4 = Performance counter and Monitoring KPI. "
-                 "CR01 is sheet 15. File: MIMO_Deployment_v5.0.xlsx")
+                 "Former “14. MIMO Incon Report” and “15. MIMO Suggestions from Doc” are one sheet: "
+                 f"{SHEET_NAME}. Section 1 = FPD boxes; each MML has Live dump / Dump status / Enabled? / Action "
+                 "plus Counter monitor / Impact on KPI / short Notes / Jump to Basic. "
+                 "Section 2 = Enable/Fix trial list (still OFF). Section 3 = Performance counter and Monitoring KPI. "
+                 "CR01 is sheet 15. File: MIMO_Deployment_v6.0.xlsx")
     r = headers(ws, r, ["#", "Sheet", "Maps to", "What you will find"] + [""] * 6)
     r = table_row(ws, r,
                   ["14", SHEET_NAME, "FPD suggestions + DHK dump 8 Sep 2026",
-                   "Boxes + dump enabled/not + Enable/Fix MML + counters"] + [""] * 6,
+                   "Boxes with dump-on-MML + Enable/Fix proposal + counters"] + [""] * 6,
                   fills=[PALE_ORANGE] * 10, height=34)
     merge(ws, r - 1, 4, r - 1, 10)
     r = table_row(ws, r,
@@ -493,7 +625,7 @@ def build_combined(wb):
     ws = wb.create_sheet(SHEET_NAME, 14)
     setup_sheet(ws, SHEET_NAME)
     set_widths(ws, WIDTHS)
-    ws.oddHeader.left.text = "5G MIMO Suggestions + Incon (v5.0) — dump check + trial proposal"
+    ws.oddHeader.left.text = "5G MIMO Suggestions + Incon (v6.0) — dump status on each MML"
     ws.oddFooter.left.text = "Dump: 5G CME 8 Sep 2026 DHK 564×32T32R n41 · Suggestions from RAN10.1 FPDs · Jump to Basic = step sheet"
     ws.freeze_panes = "A4"
     ws.sheet_properties.tabColor = "C65911"
@@ -501,22 +633,21 @@ def build_combined(wb):
     items = suggestions()
     r = 1
     r = banner(ws, r, COLS,
-               "  14.  MIMO Suggestions + Inconsistency  —  document boxes, dump check, trial proposal",
+               "  14.  MIMO Suggestions + Inconsistency  —  dump status on each MML, then trial proposal",
                fill_hex="C65911", size=16, height=30)
     r = note_bar(ws, r, COLS,
-                 "One sheet instead of old 14 + 15. Section 1 keeps the FPD suggestion boxes and adds "
-                 "Counter monitor / Impact on KPI / short Notes beside each MML; Jump is renamed Jump to Basic. "
-                 "Section 2 is the dump incon for those same suggestions (already enabled or not on DHK 8 Sep 2026). "
-                 "Section 3 is the final Enable/Fix list (what is still OFF). Section 4 is the monitoring pack. "
+                 "One sheet instead of old 14 + 15. Section 1 keeps the FPD suggestion boxes. After each MML Command: "
+                 "Live DHK dump / Dump status / Enabled? / Action (the old Section 2 check), then Counter monitor / "
+                 "Impact on KPI / short Notes; Jump is Jump to Basic. There is no separate dump-incon section. "
+                 "Section 2 is the Enable/Fix list (still OFF). Section 3 is the monitoring pack. "
                  "Replace {NrDuCellId} / {NrDuCellTrpId}. Keep 2T2R indoor OFF. mmWave/DAS/Fusion = N/A on n41. "
-                 "CR01 (sheet 15) already sends most Section 3 Enables on 10 macros.")
+                 "CR01 (sheet 15) already sends most Section 2 Enables on 10 macros.")
 
     toc_row = r
     r = section(ws, r, COLS, "Jump  (click)")
-    jumps = [("Section 1 — Suggestions", None),
-             ("Section 2 — Dump incon", None),
-             ("Section 3 — Final proposal", None),
-             ("Section 4 — Counters / KPI", None)]
+    jumps = [("Section 1 — Suggestions + dump on MML", None),
+             ("Section 2 — Final proposal", None),
+             ("Section 3 — Counters / KPI", None)]
     jump_cells = []
     for i, (lab, _) in enumerate(jumps, 1):
         put(ws, r, i, lab, size=9, bold=True, fill_hex=PALE_BLUE, h="center", v="center", border=True)
@@ -527,21 +658,21 @@ def build_combined(wb):
 
     # ----- Section 1 -----
     sec1 = r
-    r = section(ws, r, COLS, "Section 1.  Document suggestions  (Principal · Benefit · Parameter · MML)")
+    r = section(ws, r, COLS, "Section 1.  Document suggestions  (Principal · Benefit · Parameter · MML + dump)")
     r = note_bar(ws, r, COLS,
-                 "Same boxes as v3.0 sheet 15. New columns after MML Command: Counter monitor, Impact on KPI, "
-                 "short Notes (one sentence). Last column = Jump to Basic (the Step sheet). "
-                 "This section is document-based — dump check is Section 2.")
+                 "Same boxes as v3.0 sheet 15. Dump columns on each MML (CME 8 Sep 2026 DHK 564×32T32R): "
+                 "Already ON = Skip. Missing = still OFF (goes to Section 2 Enable). Hold = OFF but not this night. "
+                 "Fix = RF first. N/A = not this network. Then Counter monitor / Impact on KPI / short Notes / Jump to Basic.")
     r = section(ws, r, COLS, "Index of suggestion boxes  (click ID to jump down this sheet)")
-    r = headers(ws, r, ["ID", "Family", "Suggestion (click ID)", "Source step (Jump to Basic)"] + [""] * 9)
+    r = headers(ws, r, ["ID", "Family", "Suggestion (click ID)", "Source step (Jump to Basic)"] + [""] * 10)
     toc_start = r
     for rec in items:
         put(ws, r, 1, rec["sid"], size=10, bold=True, fill_hex=PALE_GOLD, h="center", v="center", border=True)
         put(ws, r, 2, rec["family"], size=10, fill_hex=WHITE, h="center", v="center", border=True)
-        merge(ws, r, 3, r, 10)
+        merge(ws, r, 3, r, 11)
         put(ws, r, 3, rec["title"][:90], size=9, fill_hex=WHITE, h="left", v="center", border=True)
-        merge(ws, r, 11, r, 13)
-        href_sheet(ws.cell(r, 11), rec["jump"], rec["jump"])
+        merge(ws, r, 12, r, 14)
+        href_sheet(ws.cell(r, 12), rec["jump"], rec["jump"])
         ws.row_dimensions[r].height = 20
         r += 1
     r = blank(ws, r, 10)
@@ -557,67 +688,17 @@ def build_combined(wb):
         ws.cell(rr, 1).fill = fill(PALE_GOLD)
         href_row(ws.cell(rr, 3), SHEET_NAME, box_rows[rec["sid"]], rec["title"][:90])
 
-    # ----- Section 2 -----
+    # ----- Section 2 (was 3) — final proposal -----
     sec2 = r
-    r = section(ws, r, COLS, "Section 2.  Incon report for Section 1  (dump: already enabled or not)")
+    r = section(ws, r, COLS, "Section 2.  Final proposal  —  trial / implement what is NOT enabled")
     r = note_bar(ws, r, COLS,
-                 "Live = 5G CME ConfigurationData 8 Sep 2026 DHK, 564×32T32R n41 NSA (2T2R indoor excluded from trials). "
-                 "Already ON = Skip. Missing = still OFF cluster-wide (CR01 may have it on 10 sites). "
-                 "Hold = OFF but not this night. Fix = RF before switches. N/A = not this network. "
-                 "Click Suggestion ID to jump to the Section 1 box.")
-    r = headers(ws, r,
-                ["SN", "Suggestion", "Family", "Parameter / switch", "Live DHK dump (32T)",
-                 "Dump status", "Enabled?", "Gap vs commercial", "Action", "License",
-                 "Jump to box", "", "Jump to Basic"],
-                fill_hex=NAVY, height=26)
-    for i, rec in enumerate(DUMP_ROWS, 1):
-        sid, fam, param, live, status, enabled, gap, action, lic = rec
-        fh = ST_FILL.get(status, WHITE)
-        vals = [i, sid, fam, param, live, status, enabled, gap, action, lic, sid, "", ""]
-        r = putn(ws, r, vals, fills=[fh] * COLS, bolds=[False, True, False, False, False, True],
-                 center={1, 2, 6, 7}, height=40)
-        if sid in box_rows:
-            href_row(ws.cell(r - 1, 2), SHEET_NAME, box_rows[sid], sid)
-            href_row(ws.cell(r - 1, 11), SHEET_NAME, box_rows[sid], sid)
-        # jump to step from suggestion family
-        jump = next((x["jump"] for x in items if x["sid"] == sid), None)
-        if jump:
-            merge(ws, r - 1, 12, r - 1, 13)
-            href_sheet(ws.cell(r - 1, 12), jump, jump)
-
-    r = blank(ws, r, 8)
-    r = subsection(ws, r, COLS, "Section 2 counts (this dump check)", fill_hex=TEAL)
-    counts = {}
-    for rec in DUMP_ROWS:
-        counts[rec[4]] = counts.get(rec[4], 0) + 1
-    r = headers(ws, r, ["Dump status", "Rows", "Meaning"] + [""] * 10)
-    meanings = {
-        "Already ON": "Matches commercial — Skip / do not re-send.",
-        "Missing": "OFF on cluster. Trial/implement (Section 3 Enable). CR01 covers most on 10 sites.",
-        "Hold": "OFF but not this night (mix rule, next wave, or license).",
-        "Fix": "RF first (tilt 255 / azimuth audit).",
-        "Partial": "Master ON / child OFF, or CR01-only not cluster.",
-        "Check": "Optional / LST — not a primary DL-tput gap.",
-        "N/A": "DAS / Fusion / mmWave / 4T4R cable — not this n41 32T network.",
-    }
-    for st, n in counts.items():
-        fh = ST_FILL.get(st, WHITE)
-        r = putn(ws, r, [st, n, meanings.get(st, "")] + [""] * 10,
-                 fills=[fh] * COLS, bolds=[True, True], height=22)
-        merge(ws, r - 1, 3, r - 1, COLS)
-
-    # ----- Section 3 -----
-    sec3 = r
-    r = section(ws, r, COLS, "Section 3.  Final proposal  —  trial / implement what is NOT enabled")
-    r = note_bar(ws, r, COLS,
-                 "Filtered from the dump incon: Action = Enable or Fix only. This is the set still OFF vs a commercial "
+                 "Filtered from the dump on each Section 1 MML: Action = Enable or Fix only. This is the set still OFF vs a commercial "
                  "32T network with good DL user throughput. CR01 (sheet 15) already sends most Enable lines on 10 macros "
                  "× 3 cells (101/102/103). Do not send LAYER_8. Do not add SRS_IC the same night as SRS_TIGHT_MULTIPLEXING. "
                  "2T2R indoor DHTIAA1 / DHAPT11 / DHTEJ34 stay OFF. Yellow columns = MML through License.")
-    # 11-col MML in first 11 columns
     titles = ["SN", "RAT", "Doc Name", "Action", "MML Command (Proposed)",
               "MO Name", "Parameter ID", "Live Value (actual in Dump)",
-              "proposed Parameter Value", "Purpose/Short Notes", "License", "", ""]
+              "proposed Parameter Value", "Purpose/Short Notes", "License", "", "", ""]
     for i, t in enumerate(titles, 1):
         if not t:
             continue
@@ -627,7 +708,6 @@ def build_combined(wb):
     r += 1
     mml_start = r
     sn = 1
-    # Do not put Hold-this-night switches in the send list (Section 2 already marks them Hold).
     skip_enable = ("SRS_IC_SW",)  # CR01 tight MUX is in this proposal
     for rec in incon_mml_rows():
         if rec[3] not in ("Enable", "Fix"):
@@ -636,7 +716,6 @@ def build_combined(wb):
         if rec[3] == "Enable" and any(k in cmd for k in skip_enable):
             continue
         new = (sn,) + rec[1:]
-        # reuse 11-col painter then pad cols 12-13
         r = incon_mml_row(ws, r, new)
         for c in range(12, COLS + 1):
             ws.cell(r - 1, c).fill = fill(YELLOW_HDR if rec[3] == "Enable" else "F4B183")
@@ -647,9 +726,10 @@ def build_combined(wb):
     r = blank(ws, r, 8)
     r = subsection(ws, r, COLS, "Still OFF — Hold this night (not in the trial MML above)", fill_hex="C65911")
     r = note_bar(ws, r, COLS,
-                 "These are not enabled on the cluster either, but they are not the Section 3 send list. "
-                 "SRS_IC stays Hold while CR01 SRS_TIGHT_MULTIPLEXING is ON. PMI/open-loop stay Hold while SRS weight is ON.")
-    r = headers(ws, r, ["SN", "Suggestion", "Parameter / switch", "Dump status", "Why Hold", "When"] + [""] * 7)
+                 "These are not enabled on the cluster either, but they are not the Section 2 send list. "
+                 "SRS_IC stays Hold while CR01 SRS_TIGHT_MULTIPLEXING is ON. PMI/open-loop stay Hold while SRS weight is ON. "
+                 "Dump status on the matching Section 1 MML is Hold.")
+    r = headers(ws, r, ["SN", "Suggestion", "Parameter / switch", "Dump status", "Why Hold", "When"] + [""] * 8)
     holds = [x for x in DUMP_ROWS if x[4] in ("Hold",)]
     for i, rec in enumerate(holds, 1):
         sid, fam, param, live, status, enabled, gap, action, lic = rec
@@ -669,16 +749,16 @@ def build_combined(wb):
     ], fill_hex=PALE_GREEN)
     ws.row_dimensions[r - 1].height = 72
 
-    # ----- Section 4 -----
-    sec4 = r
-    r = section(ws, r, COLS, "Section 4.  Performance counter and Monitoring KPI", fill_hex=TEAL)
+    # ----- Section 3 (was 4) -----
+    sec3 = r
+    r = section(ws, r, COLS, "Section 3.  Performance counter and Monitoring KPI", fill_hex=TEAL)
     r = note_bar(ws, r, COLS,
-                 "MAE DU, 15 min, busy hour. Trial = CR01 10 gNB (or any cell where Section 3 was sent). "
+                 "MAE DU, 15 min, busy hour. Trial = CR01 10 gNB (or any cell where Section 2 was sent). "
                  "Control = neighbour 32T not in the trial. Pre D−7, post D+1 and D+7. "
                  "Source: FPD Counter Changes for MIMO TDD / Beam / AHR / iBeam / UL Boosting.")
     r = headers(ws, r,
                 ["SN", "Counter ID", "Counter Name", "Function", "Use for Section 1 suggestions",
-                 "KPI it feeds", "Granularity", "Pass / fail gate", "", "", "", "", ""],
+                 "KPI it feeds", "Granularity", "Pass / fail gate", "", "", "", "", "", ""],
                 fill_hex=TEAL, height=24)
     ctrs = [
         (1, "N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "User DL Average Throughput (DU)",
@@ -787,10 +867,9 @@ def build_combined(wb):
             ws.cell(r - 1, c).border = thin
 
     # patch TOC jump row
-    href_row(ws.cell(jump_cells[0][0], jump_cells[0][1]), SHEET_NAME, sec1, "Section 1 — Suggestions")
-    href_row(ws.cell(jump_cells[1][0], jump_cells[1][1]), SHEET_NAME, sec2, "Section 2 — Dump incon")
-    href_row(ws.cell(jump_cells[2][0], jump_cells[2][1]), SHEET_NAME, sec3, "Section 3 — Final proposal")
-    href_row(ws.cell(jump_cells[3][0], jump_cells[3][1]), SHEET_NAME, sec4, "Section 4 — Counters / KPI")
+    href_row(ws.cell(jump_cells[0][0], jump_cells[0][1]), SHEET_NAME, sec1, "Section 1 — Suggestions + dump on MML")
+    href_row(ws.cell(jump_cells[1][0], jump_cells[1][1]), SHEET_NAME, sec2, "Section 2 — Final proposal")
+    href_row(ws.cell(jump_cells[2][0], jump_cells[2][1]), SHEET_NAME, sec3, "Section 3 — Counters / KPI")
     for _, i in jump_cells:
         ws.cell(jump_cells[0][0], i).fill = fill(PALE_BLUE)
     return ws
@@ -799,7 +878,7 @@ def build_combined(wb):
 def main():
     if not os.path.exists(SRC):
         raise SystemExit(f"missing {SRC} — build v4.0 first")
-    print("copy v4.0 → v5.0")
+    print("copy v4.0 → v6.0")
     shutil.copy2(SRC, OUT)
     wb = load_workbook(OUT)
     if OLD14 in wb.sheetnames:

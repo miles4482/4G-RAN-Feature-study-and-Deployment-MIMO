@@ -512,7 +512,9 @@ def _sheet_has_section(ws):
         s = str(v).strip()
         if s == SECTION_TITLE:
             return True
-        if s == "Section 4.  Performance counter and Monitoring KPI":
+        if s.startswith("Section 3.  Performance counter and Monitoring KPI"):
+            return True
+        if s.startswith("Section 4.  Performance counter and Monitoring KPI"):
             return True
     return False
 
@@ -584,7 +586,7 @@ def append_counters_to_all_sheets(wb):
     """Walk every worksheet and append the section if missing."""
     for ws in wb.worksheets:
         key = ws.title
-        cols = 13 if "Suggest + Incon" in key else (
+        cols = 14 if "Suggest + Incon" in key else (
             11 if key.startswith("14.") or key.startswith("15.") or key.startswith("16.") else 10)
         print("  counters:", key)
         add_perf_monitor(ws, r=None, cols=cols, sheet_key=key)

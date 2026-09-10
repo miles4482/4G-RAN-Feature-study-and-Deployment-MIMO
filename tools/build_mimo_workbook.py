@@ -72,11 +72,12 @@ def main():
     from build_incon_report import main as build_v2
     from build_suggestions_sheet import main as build_v3
     from build_cr01_sheet import main as build_v4
-    from build_combined_sheet import main as build_v5
+    # v5.0 is frozen (dump as a separate Section 2). v6.0 merges dump onto each MML.
+    from build_combined_sheet import main as build_v6
     build_v2()
     build_v3()
     build_v4()
-    build_v5()
+    build_v6()
 
 
 if __name__ == "__main__":
