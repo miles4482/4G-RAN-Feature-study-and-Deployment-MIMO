@@ -457,6 +457,65 @@ COUNTERS = {
          "Safety for SSB + iBeam in one night.",
          "Any rise vs control → rollback CR01 on that gNB."),
     ],
+    "16. Master Findings": [
+        ("N.ChMeas.MIMO.DL.MuPairing.kLayer.RB  (k = 1…16)", "DL MU paired RB per layer count",
+         "The counter family in the trial pivot. Paired RB at each MU layer depth.",
+         "PRIMARY evidence of the Ph1 regression: 4/6-layer RB fell ~65–83 % on 11 Sep. "
+         "Ph2 exit gate = back to ≥90 % of the 5–9 Sep baseline."),
+        ("N.SRS.NI.Avg / N.UL.SRS.PreSINR.Index*", "SRS noise+interference / SRS pre-SINR",
+         "Quality of the SRS that drives DL weights and MU pairing.",
+         "MISSING from the trial evidence. Pull 9–12 Sep to prove finding F-02 "
+         "(SRS_IC_SW stacked on SRS_TIGHT_MULTIPLEXING_SW)."),
+        ("N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "User DL Average Throughput (DU)",
+         "The KPI that was expected to rise and did not.",
+         "Flat because the SRS-weight / beam-tracking levers were rejected (F-01), not because "
+         "the features do not work. Re-measure after Ph2."),
+        ("N.ChMeas.MIMO.DL.Pair.Layer.Avg / Pair.PRB", "Average DL MU paired layers",
+         "Aggregate view of the same pairing behaviour.",
+         "Cross-check against the per-layer RB family so the drop is not a reporting artefact."),
+        ("N.ChMeas.PDSCH.MCS.k / N.PDSCH.InitTbDl.Rank*", "DL MCS and rank distribution",
+         "Shows whether weights improved link adaptation.",
+         "Should upshift only after SRS_WEIGHT_ESTIMATE_SW actually lands in Ph2."),
+        ("N.DL.SCH.*.ErrTB.Ibler / N.DL.SCH.*.TB", "DL IBLER",
+         "Pairing quality gate. Stricter MU gates trade RB for BLER.",
+         "If IBLER improved while paired RB fell, the precise/anti-intrf gates are working "
+         "as designed and only the SRS input is bad."),
+        ("N.CCE.Used.Avg / N.CCE.DL.AggLvl*", "PDCCH CCE load and aggregation mix",
+         "PDCCH_AGG_LVL_COMPR_SW was in Ph1 without its threshold.",
+         "MISSING from the evidence. Pull it and set AggLvlComprCceUsageThld=60."),
+        ("N.PRB.DL.Used.Avg / N.PRB.UL.Used.Avg", "PRB load",
+         "Normaliser. Pairing RB scales with offered load.",
+         "Mandatory before blaming a feature: confirm 11 Sep load was comparable to 5–9 Sep."),
+        ("N.UECntx.AbnormRel / N.RRC.ReEst.Att", "Drop / re-establish",
+         "Safety net for the Ph1 stack.",
+         "No drop issue was reported — confirm from counters before Ph2 starts."),
+    ],
+    "17. Action Plan Ph1-Ph7": [
+        ("N.ChMeas.MIMO.DL.MuPairing.kLayer.RB", "DL MU paired RB per layer",
+         "Ph2 and Ph4 exit gate.",
+         "Ph2 gate: ≥90 % of the 5–9 Sep baseline. Ph4 target: above baseline on 4–8 layers."),
+        ("N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "User DL Average Throughput (DU)",
+         "Gate for every phase from Ph2 onward.",
+         "No phase may pass its gate with DL tput below the neighbour-32T control trend."),
+        ("N.SRS.NI.Avg / N.UL.SRS.PreSINR.Index*", "SRS NI / pre-SINR",
+         "Gate for Ph2 (SRS_IC rollback) and Ph6 (SRS weight variants).",
+         "Any NI rise stops the phase and rolls back that night's single change."),
+        ("N.ChMeas.PDSCH.MCS.k / N.PDSCH.InitTbDl.Rank*", "DL MCS / rank",
+         "Proves the Ph2 weight + tracking re-run actually worked.",
+         "Expect MCS upshift on mobility samples once BEAM_TRACKING_SW is finally ON."),
+        ("N.User.OptimalSSBBeam.Avg / N.MAC.ThpVol.DL.OptimalSSB", "Optimal SSB beam users",
+         "Ph3 gate (SSB_BEAM_ADAPT + vertical coverage).",
+         "Rise expected. Drop / HO failure rise = rollback the SSB bits only."),
+        ("N.ChMeas.MIMO.DL.Transmission.Layer.Max", "Max DL layers on a PRB",
+         "Ph4 gate — proves the LAYER_16 quota is finally being spent.",
+         "Flat after MMIMO_MULTILAYER_ENHANCE_SW = feature not effective, investigate licence."),
+        ("N.DL.SCH.*.ErrTB.Ibler / N.CCE.Used.Avg", "DL IBLER / CCE",
+         "Standing safety gate in every phase.",
+         "Both must stay inside the planned band or the phase is rolled back."),
+        ("N.UECntx.AbnormRel / N.RRC.SetupReq.Succ / HOSR", "Drop / access / handover",
+         "Standing safety gate in every phase.",
+         "Rollback trigger for the whole night, not just one switch."),
+    ],
 }
 
 KPI_ROWS = {
@@ -484,6 +543,18 @@ KPI_ROWS = {
         ("SSB optimal-beam users", "N.User.OptimalSSBBeam.Avg", "users",
          "Should rise after SSB adapt. Watch drop."),
     ],
+    "16. Master Findings": [
+        ("DL MU paired RB, high layers (≥4L)", "Σ N.ChMeas.MIMO.DL.MuPairing.{4..16}Layer.RB", "RB",
+         "9 Sep ≈ 9.7 → 11 Sep ≈ 3.25 (−66 %) → 12 Sep ≈ 4.75 (−51 %). Ph2 gate: ≥ 8.7."),
+        ("DL MU paired RB, all layers", "Σ N.ChMeas.MIMO.DL.MuPairing.{1..16}Layer.RB", "RB",
+         "9 Sep ≈ 16.3 → 11 Sep ≈ 6.35 (−61 %) → 12 Sep ≈ 9.6 (−41 %). Ph2 gate: ≥ 14.7."),
+        ("User DL Average Throughput (DU)", "N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "Mbit/s",
+         "Reported flat. Expected flat, because the weight/tracking levers were rejected."),
+        ("SRS NI", "N.SRS.NI.Avg", "dBm",
+         "NOT SUPPLIED. Needed to confirm the SRS_IC + tight-MUX conflict."),
+        ("DL IBLER", "Σ N.DL.SCH.*.ErrTB.Ibler / Σ N.DL.SCH.*.TB", "%",
+         "NOT SUPPLIED. Tells whether the stricter MU gates bought quality for the lost RB."),
+    ],
 }
 
 NOTES = {
@@ -501,6 +572,15 @@ NOTES = {
         "Pre-check: 7 days before CR. Post-check: D+1 and D+7 busy hour. "
         "Rollback = CME reverse of the same Proposed bits (set back to live). "
         "Do not add SRS_IC_SW or iBeam 2.0/3.0 in this window.",
+    "16. Master Findings":
+        "Baseline = 5 Sep and 9 Sep busy hour. Execution = 10–11 Sep 2026 (the MML log is stamped "
+        "2026-09-10 15:27:14, so the window is two days, not one). Post = 12 Sep. "
+        "The three counter families marked MISSING must be pulled from MAE before Ph2 is signed off — "
+        "without SRS NI / pre-SINR the SRS_IC root cause stays a strong hypothesis instead of proof.",
+    "17. Action Plan Ph1-Ph7":
+        "One phase per maintenance night, one root cause per phase, and never two suspect switches in the "
+        "same window — that rule is what Ph1 broke. Every phase carries its own exit gate; a phase that "
+        "misses its gate is rolled back that night and the next phase does not start.",
 }
 
 
@@ -586,7 +666,12 @@ def append_counters_to_all_sheets(wb):
     """Walk every worksheet and append the section if missing."""
     for ws in wb.worksheets:
         key = ws.title
-        cols = 14 if "Suggest + Incon" in key else (
-            11 if key.startswith("14.") or key.startswith("15.") or key.startswith("16.") else 10)
+        if "Suggest + Incon" in key:
+            # v6.0 is 14 columns, v7.0 adds the two pre-requisite columns
+            cols = min(max(ws.max_column or 14, 14), 16)
+        elif key.startswith(("14.", "15.", "16.", "17.")):
+            cols = 11
+        else:
+            cols = 10
         print("  counters:", key)
         add_perf_monitor(ws, r=None, cols=cols, sheet_key=key)

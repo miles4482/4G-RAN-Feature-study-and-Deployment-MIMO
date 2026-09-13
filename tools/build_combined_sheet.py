@@ -27,21 +27,52 @@ SRC = os.path.join(ROOT, "MIMO_Deployment_v4.0.xlsx")
 OUT = os.path.join(ROOT, "MIMO_Deployment_v6.0.xlsx")
 ZIP_OUT = os.path.join(ROOT, "MIMO_Deployment_v6.0.zip")
 
+VERSION = "v6.0"
 SHEET_NAME = "14. MIMO Suggest + Incon"  # 24 chars
+FINDINGS_SHEET = "16. Master Findings"  # v7.0
+ACTION_SHEET = "17. Action Plan Ph1-Ph7"  # v7.0
 CR01_OLD = "16. CR01 MIMO Exec Pack"
 CR01_NEW = "15. CR01 MIMO Exec Pack"
 OLD14 = "14. MIMO Incon Report"
 OLD15 = "15. MIMO Suggestions from Doc"
 
+WITH_PREREQ = False  # v7.0 inserts the pre-requisite columns before the dump columns
 COLS = 14
-WIDTHS = [7, 16, 18, 22, 20, 14, 12, 24, 28, 22, 16, 18, 12, 14]
-# 1=MML#, 2-4=MML, 5=Live dump, 6=Dump status, 7=Enabled?, 8=Action,
-# 9=Counter, 10=KPI, 11-12=short Notes, 13-14=Jump to Basic
+WIDTHS = []
+COL = {}
+
+
+def set_layout(with_prereq=False):
+    """Sheet-14 column layout. v6.0 has no pre-req columns; v7.0 has them."""
+    global WITH_PREREQ, COLS, WIDTHS, COL
+    WITH_PREREQ = with_prereq
+    if with_prereq:
+        COL = dict(sn=1, cmd=2, cmd_end=3, prereq=4, prereq_mml=5, live=6, status=7,
+                   enabled=8, action=9, ctr=10, kpi=11, notes=12, notes_end=13,
+                   jump=14, jump_end=15)
+        COLS = 15
+        WIDTHS = [6, 30, 30, 30, 36, 19, 13, 11, 22, 25, 20, 17, 13, 16, 12]
+    else:
+        COL = dict(sn=1, cmd=2, cmd_end=4, prereq=None, prereq_mml=None, live=5,
+                   status=6, enabled=7, action=8, ctr=9, kpi=10, notes=11,
+                   notes_end=12, jump=13, jump_end=14)
+        COLS = 14
+        WIDTHS = [7, 16, 18, 22, 20, 14, 12, 24, 28, 22, 16, 18, 12, 14]
+    return COL
+
+
+set_layout(False)
+
+
+def pad(titles):
+    """Pad a header list out to the current sheet width."""
+    return list(titles) + [""] * max(0, COLS - len(titles))
 
 BLUE_HDR = "5B9BD5"
 YELLOW_HDR = "FFC000"
 TEAL_HDR = "0D7377"
 GOLD_HDR = "C9A227"
+RED_HDR = "A93226"
 LINK_BLUE = "0563C1"
 MED = Border(
     left=Side(style="medium", color=NAVY),
@@ -78,7 +109,8 @@ def href_row(cell, sheet, row, text):
     cell.alignment = align("left", "center", True)
 
 
-def box_border(ws, r1, r2, cols=COLS):
+def box_border(ws, r1, r2, cols=None):
+    cols = COLS if cols is None else cols
     for r in range(r1, r2 + 1):
         for c in range(1, cols + 1):
             cell = ws.cell(r, c)
@@ -323,6 +355,297 @@ def extras(cmd, note):
             (note[:90] + ".") if note else "Watch BH vs neighbour control.")
 
 
+# Pre-requisites: what must already be ON (and in what order) before a switch is accepted.
+# Keyword → (pre-req switch / parameter, MML or LST to run first). Longest match wins.
+# RETCODE 2147616329 on the 10-Sep trial proved the BEAM_TRACKING_SW entry.
+PREREQ = [
+    ("BEAM_TRACKING_SW",
+     "MANDATORY: NRDUCellChnCovAlgo.DlCoverageAlgoSwitch = SUPER_COVERAGE_SW-1. "
+     "Without it the MOD is rejected with RETCODE 2147616329.",
+     f"1) MOD NRDUCELLCHNCOVALGO: NrDuCellId={PID}, DlCoverageAlgoSwitch=SUPER_COVERAGE_SW-1;   "
+     "// run FIRST, then send BEAM_TRACKING_SW on its own line"),
+    ("INTELLIGENT_BEAM_SELECTION_SW",
+     "BEAM_TRACKING_SW-1 (which itself needs SUPER_COVERAGE_SW-1). Never bundle both bits in one MML — "
+     "MOD is atomic, so one invalid bit rejects the whole line.",
+     f"1) MOD NRDUCELLCHNCOVALGO: NrDuCellId={PID}, DlCoverageAlgoSwitch=SUPER_COVERAGE_SW-1;  "
+     f"2) MOD NRDUCELLBEAMALGO: NrDuCellId={PID}, BeamOptAlgoSwitch=BEAM_TRACKING_SW-1;"),
+    ("SRS_WEIGHT_ESTIMATE_SW",
+     "BeamPerceiveMode=DISTRIBUTED_MODE and AdaptiveEdgeExpEnhSwitch=DL_PMI_SRS_ADAPT_SW-1 "
+     "(both already ON in DHK). Send on its own MML line — do not bundle with beam bits.",
+     f"LST NRDUCELLBEAMALGO: NrDuCellId={PID};   // confirm BeamPerceiveMode=DISTRIBUTED_MODE first"),
+    ("PMI_WEIGHT_OPT_SW",
+     "BeamPerceiveMode=DISTRIBUTED_MODE + SRS_WEIGHT_ESTIMATE KPI already green (do not mix weight sources).",
+     f"MOD NRDUCELLBEAMALGO: NrDuCellId={PID}, BeamPerceiveMode=DISTRIBUTED_MODE;"),
+    ("OPEN_LOOP_WEIGHT_OPT_SW",
+     "BeamPerceiveMode=DISTRIBUTED_MODE + SRS weight night already green.",
+     f"MOD NRDUCELLBEAMALGO: NrDuCellId={PID}, BeamPerceiveMode=DISTRIBUTED_MODE;"),
+    ("SrsNonASFixedWeightType",
+     "AdaptiveEdgeExpEnhSwitch=DL_PMI_SRS_ADAPT_SW-1 must be ON or the weight type is ignored.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, AdaptiveEdgeExpEnhSwitch=DL_PMI_SRS_ADAPT_SW-1;"),
+    ("SCENARIO_BEAM_OPT_SW",
+     "NRDUCellTrpBeam.CoverageScenario already set to the RF-planned scenario.",
+     f"MOD NRDUCELLTRPBEAM: NrDuCellTrpId={TID}, CoverageScenario=SCENARIO_n;"),
+    ("SSB_BEAM_VERTICAL_COV_IMP_SW",
+     "SSB_BEAM_ADAPT_SW-1 first (vertical improve is its child).",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, BeamOptSwitch=SSB_BEAM_ADAPT_SW-1;"),
+    ("SSB_BEAM_ADAPT_SW",
+     "DL_INITIAL_BEAM_SELECT_SW-1 (already ON) + Tilt/Azimuth per RF design. Never with Tilt=255.",
+     f"LST NRDUCELLTRPBEAM: NrDuCellTrpId={TID};   // Tilt must not be 255"),
+    ("HighPrecisionBeamPhase2Sw",
+     "HighPrecisionBeamSwitch=ON and iBeam 1.0 already KPI-green.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("HighPrecisionBeamPhase3Sw",
+     "HighPrecisionBeamPhase2Sw=ON and 2.0 KPI-green.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamPhase2Sw=ON;"),
+    ("HighPrecisionBeamSwitch=ON",
+     "License NR0S00BEAM00 + MU-MIMO masters DL_MU_MIMO_SW-1 / UL_MU_MIMO_SW-1 (Step3).",
+     "1) LST LICENSE;   2) LST NRDUCELLALGOSWITCH: NrDuCellId=" + PID + ";   // MuMimoSwitch must show DL+UL MU"),
+    ("SRS_TIGHT_MULTIPLEXING_SW",
+     "HighPrecisionBeamSwitch=ON  AND  SrsDetectionAlgoSwitch=SRS_IC_SW-0 in the same cell. "
+     "Both SRS bits in one window is what degraded Ph1 pairing.",
+     f"MOD NRDUCELLSRS: NrDuCellId={PID}, SrsDetectionAlgoSwitch=SRS_IC_SW-0;   // keep IC OFF"),
+    ("SRS_IC_SW",
+     "AhrSwitch=AHR_EXP_TURBO_PHASE2_SW-1 AND SrsAlgoSwitch=SRS_TIGHT_MULTIPLEXING_SW-0. "
+     "Never the same night as tight multiplexing.",
+     f"MOD NRDUCELLSRS: NrDuCellId={PID}, SrsAlgoSwitch=SRS_TIGHT_MULTIPLEXING_SW-0;"),
+    ("SRS_JOINT_PC_SW",
+     "AhrSwitch=AHR_EXP_TURBO_PHASE2_SW-1 (Turbo master).",
+     f"LST NRDUCELLFEATURESW: NrDuCellId={PID};   // AhrSwitch shows AHR_EXP_TURBO_PHASE2"),
+    ("AHR_EXP_TURBO_PHASE2_SW",
+     "AhrSwitch=AHR_PHASE1_SW-1 first.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, AhrSwitch=AHR_PHASE1_SW-1;"),
+    ("AHR_CAPC_UPGRADE_PHASE2_SW",
+     "AHR_PHASE1_SW-1 + AHR_EXP_TURBO_PHASE2_SW-1 + DL_MU_MIMO_SW-1.",
+     f"LST NRDUCELLFEATURESW: NrDuCellId={PID};   // both AHR phases must be 1"),
+    ("PDCCH_MULTI_DIM_JOINT_SCH_SW",
+     "AhrSwitch=AHR_CAPC_UPGRADE_PHASE2_SW-1 (master).",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, AhrSwitch=AHR_CAPC_UPGRADE_PHASE2_SW-1;"),
+    ("MMIMO_MULTILAYER_ENHANCE_SW",
+     "DL_MU_MIMO_SW-1 + MaxMimoLayerNum ≥ LAYER_8 (DHK is LAYER_16) + license NR0S0DLEPU00.",
+     "1) LST LICENSE;   2) LST NRDUCELLPDSCH: NrDuCellId=" + PID + ";   // MaxMimoLayerNum"),
+    ("MU_RANK_BOOSTING_SW",
+     "HighLayerMuMimoSw=MMIMO_MULTILAYER_ENHANCE_SW-1 (master) first.",
+     f"MOD NRDUCELLDLMIMO: NrDuCellId={PID}, HighLayerMuMimoSw=MMIMO_MULTILAYER_ENHANCE_SW-1;"),
+    ("MU_MIMO_PAIRING_PREFERRED_SW",
+     "HighLayerMuMimoSw=MMIMO_MULTILAYER_ENHANCE_SW-1 (master) first.",
+     f"MOD NRDUCELLDLMIMO: NrDuCellId={PID}, HighLayerMuMimoSw=MMIMO_MULTILAYER_ENHANCE_SW-1;"),
+    ("SRS_MEAS_ACCELERATING_SW",
+     "HighLayerMuMimoSw=MMIMO_MULTILAYER_ENHANCE_SW-1 (master) first.",
+     f"MOD NRDUCELLDLMIMO: NrDuCellId={PID}, HighLayerMuMimoSw=MMIMO_MULTILAYER_ENHANCE_SW-1;"),
+    ("SRS_BLIND_IS_SW",
+     "HighLayerMuMimoSw=MMIMO_MULTILAYER_ENHANCE_SW-1 (master) first.",
+     f"MOD NRDUCELLDLMIMO: NrDuCellId={PID}, HighLayerMuMimoSw=MMIMO_MULTILAYER_ENHANCE_SW-1;"),
+    ("MULTILAYER_DEMOD_ENH_SW",
+     "MuMimoSwitch=UL_MU_MIMO_SW-1 + license NR0S0ULEPU00.",
+     f"LST NRDUCELLALGOSWITCH: NrDuCellId={PID};   // UL_MU_MIMO_SW must be 1"),
+    ("MU_MIMO_FLEX_PAIR_SW",
+     "UlHighLayerMuMimoSwitch=MULTILAYER_DEMOD_ENH_SW-1 first.",
+     f"MOD NRDUCELLULMIMO: NrDuCellId={PID}, UlHighLayerMuMimoSwitch=MULTILAYER_DEMOD_ENH_SW-1;"),
+    ("UL_LOW_NOISE_PHASE2_SW",
+     "MimoFeatureSwitch=UL_LOW_NOISE_SW-1 + inter-gNB time sync.",
+     "1) DSP CLKTST;   2) LST NRDUCELLFEATURESW: NrDuCellId=" + PID + ";"),
+    ("PUSCH_COORD_PWR_CTRL_SW",
+     "UL_LOW_NOISE_PHASE2_SW-1 + TIME_SYNC confirmed.",
+     "DSP CLKTST;   // must report time sync before coordinated PC"),
+    ("UL_MU_GRP_PAIR_SW",
+     "MimoFeatureSwitch=UL_LOW_NOISE_SW-1 + MuMimoSwitch=UL_MU_MIMO_SW-1.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, MimoFeatureSwitch=UL_LOW_NOISE_SW-1;"),
+    ("DIFF_WAVEFORM_PAIR_SW",
+     "MimoFeatureSwitch=UL_LOW_NOISE_SW-1 + UL_MU_GRP_PAIR_SW-1.",
+     f"MOD NRDUCELLULMIMO: NrDuCellId={PID}, UlMuMimoAlgoSwitch=UL_MU_GRP_PAIR_SW-1;"),
+    ("UL_CORR_ACCELERATION_SW",
+     "MimoFeatureSwitch=UL_LOW_NOISE_SW-1 + UL_MU_GRP_PAIR_SW-1.",
+     f"MOD NRDUCELLULMIMO: NrDuCellId={PID}, UlMuMimoAlgoSwitch=UL_MU_GRP_PAIR_SW-1;"),
+    ("UL_LOW_NOISE_SW",
+     "License NR0S00UAHR00 + 32T cell (keep OFF on 2T2R indoor).",
+     "LST LICENSE;   // NR0S00UAHR00 must be allocated"),
+    ("DL_MU_PRECISE_SCH_SW",
+     "HighPrecisionBeamSwitch=ON + MuMimoSwitch=DL_MU_MIMO_SW-1. Tightens pairing — needs healthy SRS.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("DL_MU_ANTI_INTRF_SCH_SW",
+     "HighPrecisionBeamSwitch=ON + DL_MU_MIMO_SW-1. Tightens pairing — needs healthy SRS.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("PRECISE_MUMIMO_EVAL_SW",
+     "HighPrecisionBeamPhase2Sw=ON (iBeam 2.0 master).",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamPhase2Sw=ON;"),
+    ("FAR_UE_RANK_OPT_SW",
+     "HighPrecisionBeamPhase2Sw=ON.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamPhase2Sw=ON;"),
+    ("DL_CORR_ACCELERATION_SW",
+     "HighPrecisionBeamPhase2Sw=ON.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamPhase2Sw=ON;"),
+    ("DL_ROBUST_WEIGHT_SW",
+     "HighPrecisionBeamPhase2Sw=ON.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamPhase2Sw=ON;"),
+    ("DL_SELF_FUSION_WEIGHT_SW",
+     "HighPrecisionBeamPhase3Sw=ON.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamPhase3Sw=ON;"),
+    ("DL_SMART_AMC_SW",
+     "HighPrecisionBeamPhase3Sw=ON.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamPhase3Sw=ON;"),
+    ("DYNAMIC_CLUSTER_GROUP",
+     "HighPrecisionBeamPhase2Sw=ON (overrides Step3 ISOLATION_CORRELATION only while 2.0 is ON).",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamPhase2Sw=ON;"),
+    ("SRS_BLIND_IS_MEAS_SW",
+     "HighPrecisionBeamSwitch=ON (iBeam 1.0 master).",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("BEAM_SELECT_OPT_SW",
+     "HighPrecisionBeamSwitch=ON. Send on its own MML line (it was lost in the Ph1 bundled command).",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("DL_BWP_HYBRID_INTRF_RANDOM_SW",
+     "HighPrecisionBeamSwitch=ON.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("DL_RLC_STAT_RPT_MERGE_SCH_SW",
+     "HighPrecisionBeamSwitch=ON.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("RES_BASED_DL_ADAPT_SCH_SW",
+     "HighPrecisionBeamSwitch=ON.",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("PDCCH_AGG_LVL_COMPR_SW",
+     "HighPrecisionBeamSwitch=ON. Set AggLvlComprCceUsageThld=60 with it.",
+     f"MOD NRDUCELLPDCCHALGO: NrDuCellId={PID}, AggLvlComprCceUsageThld=60;"),
+    ("TAIL_PKT_MCS_OPT_SW",
+     "HighPrecisionBeamSwitch=ON (iBeam) or MMIMO_MULTILAYER_ENHANCE_SW-1 (multilayer).",
+     f"MOD NRDUCELLFEATURESW: NrDuCellId={PID}, HighPrecisionBeamSwitch=ON;"),
+    ("PDCCH_MU_SW",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1 and UL_MU_MIMO_SW-1 first.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DL_MU_MIMO_SW",
+     "Step2 SU layers set + license NR0S00MUMM00. Keep OFF on 2T2R.",
+     "LST LICENSE;   // NR0S00MUMM00 + layer capacity units"),
+    ("UL_MU_MIMO_SW",
+     "Step2 SU layers set + license NR0S00MUMM00. Keep OFF on 2T2R.",
+     "LST LICENSE;   // NR0S00MUMM00 + layer capacity units"),
+    ("MaxMimoLayerNum",
+     "DL layer capacity licence NR0S0DLEPU00. Never downgrade live LAYER_16.",
+     f"LST NRDUCELLPDSCH: NrDuCellId={PID};   // read the live value before any MOD"),
+    ("MaxMimoLayerCnt",
+     "UL layer capacity licence NR0S0ULEPU00. Never downgrade the live value.",
+     f"LST NRDUCELLPUSCH: NrDuCellId={PID};   // read the live value before any MOD"),
+    ("SMART_SCH_AND_LINK_ADAPT_SW",
+     "Performance-pack license + Huawei TAC approval.",
+     "LST LICENSE;   // raise TAC case before enabling"),
+    ("HIGH_CAPACITY_EXP_IMP_SW",
+     "Performance-pack license + Huawei TAC approval.",
+     "LST LICENSE;   // raise TAC case before enabling"),
+    ("UL_SU_SINR_INTEL_PREDICT_SW",
+     "AI model loaded and valid.",
+     f"DSP NRDUCELLAISCHMODEL: NrDuCellId={PID};"),
+    ("UL_PRECISE_MCS_OPT_SW",
+     "AI model loaded and valid + UL_LOW_NOISE_PHASE2_SW-1.",
+     f"DSP NRDUCELLAISCHMODEL: NrDuCellId={PID};"),
+    ("DM_MIMO_SERVICE_SWITCH",
+     "Slave TRP already added (TrpType=SLAVE) on the same NR DU cell.",
+     "MOD NRDUCELLTRP: NrDuCellTrpId={SlaveTrpId}, TrpType=SLAVE;"),
+    ("MUMIMO_SINR_ENH_SW",
+     "GNBCLUSTER (INTRA_CELL_MIMO) + GNBMIMOCLUSTERCELL already added.",
+     "1) ADD GNBCLUSTER: ClusterType=INTRA_CELL_MIMO;   2) ADD GNBMIMOCLUSTERCELL: ...;"),
+    ("SINGLE_TRP_SSB_TRANS_SW",
+     "Fusion cluster active + MUMIMO_SINR_ENH_SW-1.",
+     "LST GNBCLUSTER;   // cluster must be INTRA_CELL_MIMO"),
+    ("NRDUCELLTRPMMWAVBEAM",
+     "FR2 cell. DEA NRCELL before the MOD and ACT NRCELL after. N/A on n41 FR1.",
+     "1) DEA NRCELL: NrCellId=...;   2) MOD ...;   3) ACT NRCELL: NrCellId=...;"),
+    ("VOL_BASED_BEAM_MULTIPLEX_SW",
+     "FR2 multi-beam cell. Do not send on FR1 n41.",
+     "LST NRDUCELL;   // confirm FR2 before sending"),
+    ("ANTENNAPORTOPTDET",
+     "TxRxMode=4T4R + NORMAL_CELL + at least 2 intra-frequency cells in service. No VSWR alarm.",
+     "1) LST NRDUCELLTRP;   2) LST ALMAF;   // clear VSWR first"),
+    ("SUPER_COVERAGE_SW",
+     "None — this switch is itself the pre-requisite of BEAM_TRACKING_SW.",
+     "Run this line first, then BEAM_TRACKING_SW."),
+    ("BeamPerceiveMode",
+     "None — this is itself the pre-requisite of SRS_WEIGHT_ESTIMATE_SW / PMI_WEIGHT_OPT_SW.",
+     "Run this line before any weight switch."),
+    ("DL_PMI_SRS_ADAPT_SW",
+     "None — this is itself the pre-requisite of SrsNonASFixedWeightType and the SRS weight path.",
+     "Run this line before the weight switches."),
+    ("SrsWeightValidityPeriod",
+     "WeightAlgoSwitch=SRS_WEIGHT_ESTIMATE_SW-1 — the validity period is ignored without it.",
+     f"MOD NRDUCELLBEAMALGO: NrDuCellId={PID}, WeightAlgoSwitch=SRS_WEIGHT_ESTIMATE_SW-1;"),
+    ("SrsPreSinrJudgeThld",
+     "SRS-based weights or SRS MU pairing already ON, otherwise this threshold has no effect.",
+     f"LST NRDUCELLBEAMALGO: NrDuCellId={PID};   // WeightAlgoSwitch must show SRS_WEIGHT_ESTIMATE_SW"),
+    ("SrsBlindIsDegree",
+     "SrsMeasOptSwitch=SRS_BLIND_IS_MEAS_SW-1 first.",
+     f"MOD NRDUCELLSRSMEAS: NrDuCellId={PID}, SrsMeasOptSwitch=SRS_BLIND_IS_MEAS_SW-1;"),
+    ("AggLvlComprCceUsageThld",
+     "PdcchAlgoSwitch=PDCCH_AGG_LVL_COMPR_SW-1 first. This line was missing from the Ph1 work order.",
+     f"MOD NRDUCELLPDCCH: NrDuCellId={PID}, PdcchAlgoSwitch=PDCCH_AGG_LVL_COMPR_SW-1;"),
+    ("DlSchOptTimeThld",
+     "DlSchAlgoSwitch=RES_BASED_DL_ADAPT_SCH_SW-1 first.",
+     f"MOD NRDUCELLDLSCH: NrDuCellId={PID}, DlSchAlgoSwitch=RES_BASED_DL_ADAPT_SCH_SW-1;"),
+    ("DlAdaptSchTimeThld",
+     "DlSchAlgoSwitch=RES_BASED_DL_ADAPT_SCH_SW-1 first.",
+     f"MOD NRDUCELLDLSCH: NrDuCellId={PID}, DlSchAlgoSwitch=RES_BASED_DL_ADAPT_SCH_SW-1;"),
+    ("DlPrecodeOptOnSrsDtxSw",
+     "SRS-based precoding path already ON (WeightAlgoSwitch=SRS_WEIGHT_ESTIMATE_SW-1).",
+     f"LST NRDUCELLBEAMALGO: NrDuCellId={PID};   // confirm the SRS weight path is active"),
+    ("CoverageScenario",
+     "License NR0SBSC3DC00 and the RF-planned scenario per TRP. Tilt / Azimuth must be real "
+     "values — never leave 255 on a cell that takes beam-shaping switches.",
+     f"LST NRDUCELLTRPBEAM: NrDuCellTrpId={TID};   // read the live scenario and tilt first"),
+    ("Tilt=255",
+     "RF design values for tilt and azimuth. A cell left at Tilt=255 must be fixed before it takes "
+     "any beam-shaping or SSB-adaptation switch, and must not join the trial set.",
+     f"LST NRDUCELLTRPBEAM: NrDuCellTrpId={TID};   // fix RF first, then re-send this line"),
+    ("FR1MaxCellCsirsPortNum",
+     "8-port-capable AAU (32T is). CSI-RS port count affects every UE in the cell, so align it with "
+     "MaxMimoLayerNum and the DL layer licence before changing it.",
+     f"LST NRDUCELLPDSCH: NrDuCellId={PID};   // check MaxMimoLayerNum and licence first"),
+    ("MaxPairLayerNum",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1 — pairing layer caps do nothing while MU is OFF.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlMuMimoGroupMode",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlPmiMuMimoSpaceIsoThld",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1 (PMI pairing branch).",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlSrsMuMimoSpaceIsoThld",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1 and the SRS weight path ON (SRS pairing branch).",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlMuMimoSrsPreSinrThld",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1 and SRS-based pairing in use.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlMuBackToSuSeThld",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlMuPmiBeamNumThld",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1 (PMI pairing branch).",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlMuMimoSirScaleFactor",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlMuEstRbPolicy",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlSrsMuMimoRank",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1 and the SRS weight path ON.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("DlPmiMuMimoRank",
+     "MuMimoSwitch=DL_MU_MIMO_SW-1 (PMI pairing branch).",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=DL_MU_MIMO_SW-1;"),
+    ("UlMuMimoCorrThld",
+     "MuMimoSwitch=UL_MU_MIMO_SW-1.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=UL_MU_MIMO_SW-1;"),
+    ("UlMuMimoSinrThld",
+     "MuMimoSwitch=UL_MU_MIMO_SW-1.",
+     f"MOD NRDUCELLALGOSWITCH: NrDuCellId={PID}, MuMimoSwitch=UL_MU_MIMO_SW-1;"),
+]
+
+PREREQ_NONE = ("None — parent MO only (no dependent switch).", "—")
+
+
+def prereq_for(cmd):
+    """Pre-requisite switch + the MML/LST to run before this line."""
+    for key, text, mml in sorted(PREREQ, key=lambda x: len(x[0]), reverse=True):
+        if key in cmd:
+            return text, mml
+    return PREREQ_NONE
+
+
 # Section 2: dump vs each suggestion (32T n=564 unless noted)
 DUMP_ROWS = [
     # sid, family, param, live, status, enabled, gap, action, license
@@ -500,16 +823,17 @@ def add_box(ws, r, rec, sheet_name):
     start = r
     fam = rec["family"]
     color = FAMILY_COLOR.get(fam, NAVY)
-    merge(ws, r, 1, r, 11)
+    merge(ws, r, 1, r, COLS - 3)
     put(ws, r, 1, f"  {rec['sid']}   ·   {rec['title']}", size=12, bold=True, color=WHITE,
         fill_hex=color, h="left", v="center")
-    for c in range(2, 12):
+    for c in range(2, COLS - 2):
         ws.cell(r, c).fill = fill(color)
-    put(ws, r, 12, "Read benefit →", size=9, bold=True, color=WHITE, fill_hex=color, h="right", v="center")
-    merge(ws, r, 13, r, 14)
-    href_sheet(ws.cell(r, 13), rec["jump"], rec["jump"])
-    ws.cell(r, 13).fill = fill("FFF2CC")
-    ws.cell(r, 14).fill = fill("FFF2CC")
+    put(ws, r, COLS - 2, "Read benefit →", size=9, bold=True, color=WHITE, fill_hex=color,
+        h="right", v="center")
+    merge(ws, r, COLS - 1, r, COLS)
+    href_sheet(ws.cell(r, COLS - 1), rec["jump"], rec["jump"])
+    ws.cell(r, COLS - 1).fill = fill("FFF2CC")
+    ws.cell(r, COLS).fill = fill("FFF2CC")
     ws.row_dimensions[r].height = 24
     r += 1
     merge(ws, r, 1, r, COLS)
@@ -523,25 +847,31 @@ def add_box(ws, r, rec, sheet_name):
     r = label_row(ws, r, "Benefit", rec["benefit"], PALE_GREEN)
     r = label_row(ws, r, "Parameter details", rec["params"], "DDEBF7")
 
-    # MML header: # | command | Live dump | Dump status | Enabled? | Action | Counter | KPI | Notes | Jump
+    # MML header: Seq | command | [pre-req] | Live dump | status | Enabled? | Action | Counter | KPI | Notes | Jump
     for col in range(1, COLS + 1):
         put(ws, r, col, "", size=8, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
-    put(ws, r, 1, "MML #", size=8, bold=True, fill_hex=BLUE_HDR, h="center", v="center", border=True)
-    merge(ws, r, 2, r, 4)
-    put(ws, r, 2, "MML Command  (one parameter / one switch / one line)  +  note at end",
+    put(ws, r, COL["sn"], "Seq  /  MML #" if WITH_PREREQ else "MML #",
+        size=8, bold=True, fill_hex=BLUE_HDR, h="center", v="center", border=True)
+    merge(ws, r, COL["cmd"], r, COL["cmd_end"])
+    put(ws, r, COL["cmd"], "MML Command  (one parameter / one switch / one line)  +  note at end",
         size=8, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
-    put(ws, r, 5, "Live DHK dump (32T)", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
-    put(ws, r, 6, "Dump status", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
-    put(ws, r, 7, "Enabled?", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
-    put(ws, r, 8, "Action", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
-    put(ws, r, 9, "Counter monitor", size=8, bold=True, color=WHITE, fill_hex=TEAL_HDR, h="center", v="center", border=True)
-    put(ws, r, 10, "Impact on KPI", size=8, bold=True, fill_hex=GOLD_HDR, h="center", v="center", border=True)
-    merge(ws, r, 11, r, 12)
-    put(ws, r, 11, "short Notes", size=8, bold=True, fill_hex="F4B183", h="center", v="center", border=True)
-    ws.cell(r, 12).fill = fill("F4B183")
-    merge(ws, r, 13, r, 14)
-    put(ws, r, 13, "Jump to Basic", size=8, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
-    ws.cell(r, 14).fill = fill(YELLOW_HDR)
+    if WITH_PREREQ:
+        put(ws, r, COL["prereq"], "Pre-requisite switch / parameter  (must be ON first)",
+            size=8, bold=True, color=WHITE, fill_hex=RED_HDR, h="center", v="center", border=True)
+        put(ws, r, COL["prereq_mml"], "Pre-requisite MML  (run BEFORE this line)",
+            size=8, bold=True, color=WHITE, fill_hex=RED_HDR, h="center", v="center", border=True)
+    put(ws, r, COL["live"], "Live DHK dump (32T)", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
+    put(ws, r, COL["status"], "Dump status", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
+    put(ws, r, COL["enabled"], "Enabled?", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
+    put(ws, r, COL["action"], "Action", size=8, bold=True, color=WHITE, fill_hex=NAVY, h="center", v="center", border=True)
+    put(ws, r, COL["ctr"], "Counter monitor", size=8, bold=True, color=WHITE, fill_hex=TEAL_HDR, h="center", v="center", border=True)
+    put(ws, r, COL["kpi"], "Impact on KPI", size=8, bold=True, fill_hex=GOLD_HDR, h="center", v="center", border=True)
+    merge(ws, r, COL["notes"], r, COL["notes_end"])
+    put(ws, r, COL["notes"], "short Notes", size=8, bold=True, fill_hex="F4B183", h="center", v="center", border=True)
+    ws.cell(r, COL["notes_end"]).fill = fill("F4B183")
+    merge(ws, r, COL["jump"], r, COL["jump_end"])
+    put(ws, r, COL["jump"], "Jump to Basic", size=8, bold=True, fill_hex=YELLOW_HDR, h="center", v="center", border=True)
+    ws.cell(r, COL["jump_end"]).fill = fill(YELLOW_HDR)
     ws.row_dimensions[r].height = 28
     r += 1
 
@@ -552,27 +882,35 @@ def add_box(ws, r, rec, sheet_name):
         live, status, enabled, action = drow[3], drow[4], drow[5], drow[7]
         st_fill = ST_FILL.get(status, WHITE)
         fh = WHITE if i % 2 else ROW_ALT
-        put(ws, r, 1, i, size=9, bold=True, fill_hex=fh, h="center", v="top", border=True)
-        merge(ws, r, 2, r, 4)
-        put(ws, r, 2, line, size=8, fill_hex=fh, h="left", v="top", border=True)
-        for c in range(3, 5):
+        put(ws, r, COL["sn"], i, size=9, bold=True, fill_hex=fh, h="center", v="top", border=True)
+        merge(ws, r, COL["cmd"], r, COL["cmd_end"])
+        put(ws, r, COL["cmd"], line, size=8, fill_hex=fh, h="left", v="top", border=True)
+        for c in range(COL["cmd"] + 1, COL["cmd_end"] + 1):
             ws.cell(r, c).fill = fill(fh)
             ws.cell(r, c).border = thin
-        put(ws, r, 5, live, size=8, fill_hex=st_fill, h="left", v="top", border=True)
-        put(ws, r, 6, status, size=8, bold=True, fill_hex=st_fill, h="center", v="top", border=True)
-        put(ws, r, 7, enabled, size=8, bold=True, fill_hex=st_fill, h="center", v="top", border=True)
-        put(ws, r, 8, action, size=8, fill_hex=st_fill, h="left", v="top", border=True)
-        put(ws, r, 9, ctr, size=8, fill_hex="D5F5E3", h="left", v="top", border=True)
-        put(ws, r, 10, kpi, size=8, fill_hex="FFF2CC", h="left", v="top", border=True)
-        merge(ws, r, 11, r, 12)
-        put(ws, r, 11, short, size=8, fill_hex="FDEBD0", h="left", v="top", border=True)
-        ws.cell(r, 12).fill = fill("FDEBD0")
-        ws.cell(r, 12).border = thin
-        merge(ws, r, 13, r, 14)
-        href_sheet(ws.cell(r, 13), rec["jump"], rec["jump"])
-        ws.cell(r, 13).fill = fill("FFF2CC")
-        ws.cell(r, 14).fill = fill("FFF2CC")
-        ws.row_dimensions[r].height = min(56, max(28, 16 + len(line) // 100 * 12))
+        if WITH_PREREQ:
+            pre_txt, pre_mml = prereq_for(cmd)
+            none_pre = pre_txt == PREREQ_NONE[0]
+            pf = "EAECEE" if none_pre else "FCE4E4"
+            put(ws, r, COL["prereq"], pre_txt, size=8, bold=not none_pre,
+                fill_hex=pf, h="left", v="top", border=True)
+            put(ws, r, COL["prereq_mml"], pre_mml, size=8, fill_hex=pf, h="left", v="top", border=True)
+        put(ws, r, COL["live"], live, size=8, fill_hex=st_fill, h="left", v="top", border=True)
+        put(ws, r, COL["status"], status, size=8, bold=True, fill_hex=st_fill, h="center", v="top", border=True)
+        put(ws, r, COL["enabled"], enabled, size=8, bold=True, fill_hex=st_fill, h="center", v="top", border=True)
+        put(ws, r, COL["action"], action, size=8, fill_hex=st_fill, h="left", v="top", border=True)
+        put(ws, r, COL["ctr"], ctr, size=8, fill_hex="D5F5E3", h="left", v="top", border=True)
+        put(ws, r, COL["kpi"], kpi, size=8, fill_hex="FFF2CC", h="left", v="top", border=True)
+        merge(ws, r, COL["notes"], r, COL["notes_end"])
+        put(ws, r, COL["notes"], short, size=8, fill_hex="FDEBD0", h="left", v="top", border=True)
+        ws.cell(r, COL["notes_end"]).fill = fill("FDEBD0")
+        ws.cell(r, COL["notes_end"]).border = thin
+        merge(ws, r, COL["jump"], r, COL["jump_end"])
+        href_sheet(ws.cell(r, COL["jump"]), rec["jump"], rec["jump"])
+        ws.cell(r, COL["jump"]).fill = fill("FFF2CC")
+        ws.cell(r, COL["jump_end"]).fill = fill("FFF2CC")
+        ws.row_dimensions[r].height = min(72, max(28, 16 + len(line) // 100 * 12
+                                                 + (12 if WITH_PREREQ else 0)))
         r += 1
     end = r - 1
     box_border(ws, start, end)
@@ -582,15 +920,25 @@ def add_box(ws, r, rec, sheet_name):
 
 def patch_cover(wb):
     ws = wb["0. Cover & Index"]
-    ws["A1"].value = "  5G MIMO (all features together)  —  Deployment Workbook  v6.0"
+    ws["A1"].value = f"  5G MIMO (all features together)  —  Deployment Workbook  {VERSION}"
     r = ws.max_row + 2
-    r = section(ws, r, 10, "v6.0 — dump status sits on each suggestion MML row (no separate incon section)")
-    r = note_bar(ws, r, 10,
-                 "Former “14. MIMO Incon Report” and “15. MIMO Suggestions from Doc” are one sheet: "
-                 f"{SHEET_NAME}. Section 1 = FPD boxes; each MML has Live dump / Dump status / Enabled? / Action "
-                 "plus Counter monitor / Impact on KPI / short Notes / Jump to Basic. "
-                 "Section 2 = Enable/Fix trial list (still OFF). Section 3 = Performance counter and Monitoring KPI. "
-                 "CR01 is sheet 15. File: MIMO_Deployment_v6.0.xlsx")
+    if WITH_PREREQ:
+        r = section(ws, r, 10,
+                    f"{VERSION} — pre-requisite columns on every MML + Master Findings + phased Action Plan")
+        r = note_bar(ws, r, 10,
+                     f"{SHEET_NAME} Section 1: every MML now carries “Pre-requisite switch / parameter (must be ON "
+                     "first)” and “Pre-requisite MML (run BEFORE this line)”, so the sequence is on the row itself. "
+                     "This is the fix for the 10-Sep RETCODE 2147616329 rejection (BEAM_TRACKING_SW needs "
+                     "DlCoverageAlgoSwitch=SUPER_COVERAGE_SW-1 first). New sheet 16 = Master Findings of the Ph1 trial "
+                     f"(10–11 Sep 2026). New sheet 17 = Action Plan Ph1…Ph7. File: MIMO_Deployment_{VERSION}.xlsx")
+    else:
+        r = section(ws, r, 10, "v6.0 — dump status sits on each suggestion MML row (no separate incon section)")
+        r = note_bar(ws, r, 10,
+                     "Former “14. MIMO Incon Report” and “15. MIMO Suggestions from Doc” are one sheet: "
+                     f"{SHEET_NAME}. Section 1 = FPD boxes; each MML has Live dump / Dump status / Enabled? / Action "
+                     "plus Counter monitor / Impact on KPI / short Notes / Jump to Basic. "
+                     "Section 2 = Enable/Fix trial list (still OFF). Section 3 = Performance counter and Monitoring KPI. "
+                     "CR01 is sheet 15. File: MIMO_Deployment_v6.0.xlsx")
     r = headers(ws, r, ["#", "Sheet", "Maps to", "What you will find"] + [""] * 6)
     r = table_row(ws, r,
                   ["14", SHEET_NAME, "FPD suggestions + DHK dump 8 Sep 2026",
@@ -602,6 +950,17 @@ def patch_cover(wb):
                    "Same 10 gNB execution pack as v4.0 (was sheet 16)"] + [""] * 6,
                   fills=[PALE_GOLD] * 10, height=30)
     merge(ws, r - 1, 4, r - 1, 10)
+    if WITH_PREREQ:
+        r = table_row(ws, r,
+                      ["16", FINDINGS_SHEET, "Ph1 trial result 10–11 Sep 2026",
+                       "What was executed, what was rejected, why DL tput flat and MU pairing fell, verdict per switch"]
+                      + [""] * 6, fills=["F8CBAD"] * 10, height=34)
+        merge(ws, r - 1, 4, r - 1, 10)
+        r = table_row(ws, r,
+                      ["17", ACTION_SHEET, "Phased rollout Ph1…Ph7",
+                       "Ph1 complete; Ph2 fix + re-run the rejected MML in sequence; Ph3…Ph7 with KPI exit gates"]
+                      + [""] * 6, fills=[PALE_GREEN] * 10, height=34)
+        merge(ws, r - 1, 4, r - 1, 10)
     return r
 
 
@@ -664,7 +1023,7 @@ def build_combined(wb):
                  "Already ON = Skip. Missing = still OFF (goes to Section 2 Enable). Hold = OFF but not this night. "
                  "Fix = RF first. N/A = not this network. Then Counter monitor / Impact on KPI / short Notes / Jump to Basic.")
     r = section(ws, r, COLS, "Index of suggestion boxes  (click ID to jump down this sheet)")
-    r = headers(ws, r, ["ID", "Family", "Suggestion (click ID)", "Source step (Jump to Basic)"] + [""] * 10)
+    r = headers(ws, r, pad(["ID", "Family", "Suggestion (click ID)", "Source step (Jump to Basic)"]))
     toc_start = r
     for rec in items:
         put(ws, r, 1, rec["sid"], size=10, bold=True, fill_hex=PALE_GOLD, h="center", v="center", border=True)
@@ -696,9 +1055,9 @@ def build_combined(wb):
                  "32T network with good DL user throughput. CR01 (sheet 15) already sends most Enable lines on 10 macros "
                  "× 3 cells (101/102/103). Do not send LAYER_8. Do not add SRS_IC the same night as SRS_TIGHT_MULTIPLEXING. "
                  "2T2R indoor DHTIAA1 / DHAPT11 / DHTEJ34 stay OFF. Yellow columns = MML through License.")
-    titles = ["SN", "RAT", "Doc Name", "Action", "MML Command (Proposed)",
-              "MO Name", "Parameter ID", "Live Value (actual in Dump)",
-              "proposed Parameter Value", "Purpose/Short Notes", "License", "", "", ""]
+    titles = pad(["SN", "RAT", "Doc Name", "Action", "MML Command (Proposed)",
+                  "MO Name", "Parameter ID", "Live Value (actual in Dump)",
+                  "proposed Parameter Value", "Purpose/Short Notes", "License"])
     for i, t in enumerate(titles, 1):
         if not t:
             continue
@@ -729,7 +1088,7 @@ def build_combined(wb):
                  "These are not enabled on the cluster either, but they are not the Section 2 send list. "
                  "SRS_IC stays Hold while CR01 SRS_TIGHT_MULTIPLEXING is ON. PMI/open-loop stay Hold while SRS weight is ON. "
                  "Dump status on the matching Section 1 MML is Hold.")
-    r = headers(ws, r, ["SN", "Suggestion", "Parameter / switch", "Dump status", "Why Hold", "When"] + [""] * 8)
+    r = headers(ws, r, pad(["SN", "Suggestion", "Parameter / switch", "Dump status", "Why Hold", "When"]))
     holds = [x for x in DUMP_ROWS if x[4] in ("Hold",)]
     for i, rec in enumerate(holds, 1):
         sid, fam, param, live, status, enabled, gap, action, lic = rec
@@ -757,8 +1116,8 @@ def build_combined(wb):
                  "Control = neighbour 32T not in the trial. Pre D−7, post D+1 and D+7. "
                  "Source: FPD Counter Changes for MIMO TDD / Beam / AHR / iBeam / UL Boosting.")
     r = headers(ws, r,
-                ["SN", "Counter ID", "Counter Name", "Function", "Use for Section 1 suggestions",
-                 "KPI it feeds", "Granularity", "Pass / fail gate", "", "", "", "", "", ""],
+                pad(["SN", "Counter ID", "Counter Name", "Function", "Use for Section 1 suggestions",
+                     "KPI it feeds", "Granularity", "Pass / fail gate"]),
                 fill_hex=TEAL, height=24)
     ctrs = [
         (1, "N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "User DL Average Throughput (DU)",
@@ -875,12 +1234,18 @@ def build_combined(wb):
     return ws
 
 
-def main():
+def main(out=None, zip_out=None, with_prereq=False, extra=None, version="v6.0"):
+    """Build the combined workbook. extra(wb) may append further sheets before counters."""
+    global VERSION
+    out = out or OUT
+    zip_out = zip_out or ZIP_OUT
+    VERSION = version
+    set_layout(with_prereq)
     if not os.path.exists(SRC):
         raise SystemExit(f"missing {SRC} — build v4.0 first")
-    print("copy v4.0 → v6.0")
-    shutil.copy2(SRC, OUT)
-    wb = load_workbook(OUT)
+    print("copy v4.0 →", os.path.basename(out))
+    shutil.copy2(SRC, out)
+    wb = load_workbook(out)
     if OLD14 in wb.sheetnames:
         print("remove", OLD14)
         del wb[OLD14]
@@ -898,20 +1263,24 @@ def main():
     retarget_hyperlinks(wb, OLD14, SHEET_NAME)
     retarget_hyperlinks(wb, OLD15, SHEET_NAME)
     retarget_hyperlinks(wb, CR01_OLD, CR01_NEW)
+    if extra:
+        print("extra sheets...")
+        extra(wb)
     append_counters_to_all_sheets(wb)
     colors = ["1F4E79", "2E75B6", "0D7377", "C00000", "C65911", "548235",
               "7030A0", "1F4E79", "2E75B6", "0D7377", "C00000", "C65911",
-              "548235", "7030A0", "C65911", "C00000"]
+              "548235", "7030A0", "C65911", "C00000", "A93226", "548235"]
     for i, ws in enumerate(wb.worksheets):
         ws.sheet_view.showGridLines = False
         if i < len(colors):
             ws.sheet_properties.tabColor = colors[i]
-    print("saving", OUT)
-    wb.save(OUT)
-    print("ok", os.path.getsize(OUT), "sheets", len(wb.worksheets), wb.sheetnames)
-    with zipfile.ZipFile(ZIP_OUT, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(OUT, os.path.basename(OUT))
-    print("zip", ZIP_OUT, os.path.getsize(ZIP_OUT))
+    print("saving", out)
+    wb.save(out)
+    print("ok", os.path.getsize(out), "sheets", len(wb.worksheets), wb.sheetnames)
+    with zipfile.ZipFile(zip_out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(out, os.path.basename(out))
+    print("zip", zip_out, os.path.getsize(zip_out))
+    return out
 
 
 if __name__ == "__main__":
