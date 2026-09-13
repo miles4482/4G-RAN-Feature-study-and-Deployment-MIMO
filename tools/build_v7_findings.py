@@ -12,6 +12,7 @@ MIMO_Deployment v7.0 — three changes on top of v6.0:
 
 Run:  python3 build_v7_findings.py
 """
+import math
 import os
 
 from mimo_excel_style import *
@@ -28,8 +29,8 @@ A_SHEET = bcs.ACTION_SHEET        # "17. Action Plan Ph1-Ph7"
 S14 = bcs.SHEET_NAME
 
 COLS = 11
-F_WIDTHS = [6, 22, 27, 31, 10, 17, 17, 34, 36, 15, 40]
-A_WIDTHS = [9, 15, 30, 31, 37, 24, 26, 30, 24, 13, 22]
+F_WIDTHS = [6, 21, 26, 29, 10, 14, 15, 33, 34, 14, 41]
+A_WIDTHS = [9, 14, 30, 30, 34, 20, 20, 22, 20, 16, 18]
 
 RED_HDR = "A93226"
 BLUE_HDR = "5B9BD5"
@@ -438,9 +439,20 @@ def _row(ws, r, vals, fills, bolds=(), center=(), height=44, size=8):
     return r + 1
 
 
-def _auto_h(texts, base=26, per=92, step=11, cap=118):
-    longest = max((len(str(t or "")) for t in texts), default=0)
-    return min(cap, max(base, base + longest // per * step))
+def _rows_needed(text, width_units, size=8):
+    """Wrapped line count for `text` in a column block `width_units` wide at `size` pt."""
+    cpl = max(8.0, width_units * 11.0 / size * 0.92)
+    return sum(max(1, math.ceil(len(p) / cpl)) for p in str(text or "").split("\n"))
+
+
+def _height(blocks, size=8, pad=9, cap=210, floor=26):
+    """Row height in points from (width_units, text) blocks — the tallest block wins."""
+    lines = max((_rows_needed(t, w, size) for w, t in blocks), default=1)
+    return min(cap, max(floor, lines * (size + 3.4) + pad))
+
+
+def _w(widths, c1, c2=None):
+    return sum(widths[c1 - 1:(c2 or c1)])
 
 
 def build_findings(wb):
@@ -462,7 +474,7 @@ def build_findings(wb):
 
     # ---------- Section 1: the answer in three lines
     r = section(ws, r, COLS, "Section 1.  Bottom line")
-    r = body(ws, r, COLS,
+    bottom = (
              "The trial did not fail — it never ran the experiment it was designed to run.\n\n"
              "The four switches that produce DL throughput gain (SRS_WEIGHT_ESTIMATE_SW, "
              "BEAM_SELECT_OPT_SW, BEAM_TRACKING_SW, INTELLIGENT_BEAM_SELECTION_SW) were all sent in "
@@ -478,8 +490,9 @@ def build_findings(wb):
              "high-layer MU pairing down — 4-layer paired RB fell about 65 % and 6-layer about 83 % "
              "against the 9 Sep baseline.\n\n"
              "So: one rollback (SRS_IC_SW-0), one missing pre-requisite (SUPER_COVERAGE_SW-1), and "
-             "a re-run of the four beam bits one per MML line. That is Ph2 on sheet 17.",
-             height=176, fill_hex=PALE_GOLD, size=11)
+             "a re-run of the four beam bits one per MML line. That is Ph2 on sheet 17.")
+    r = body(ws, r, COLS, bottom, fill_hex=PALE_GOLD, size=11,
+             height=_height([(sum(F_WIDTHS), bottom)], size=11, cap=320))
     r = blank(ws, r, 8)
 
     # ---------- Section 2: what was executed
@@ -498,7 +511,8 @@ def build_findings(wb):
                  "F8CBAD" if verdict.startswith("ROLL") else base, vf, vf]
         r = _row(ws, r, [i, mo, param, val, "Done", "Yes", fam, exp, obs, verdict, act],
                  fills, bolds={3, 4, 10}, center={1, 5, 6, 10},
-                 height=_auto_h([exp, obs, act]))
+                 height=_height([(F_WIDTHS[7], exp), (F_WIDTHS[8], obs),
+                                 (F_WIDTHS[10], act), (F_WIDTHS[3], val)]))
 
     r = blank(ws, r, 8)
     r = subsection(ws, r, COLS,
@@ -519,7 +533,8 @@ def build_findings(wb):
         r = _row(ws, r, [f"R{i}", mo, param, val, "Done\n(in the WO)", "NO — rejected",
                          fam, exp, obs, verdict, act],
                  fills, bolds={3, 6, 10}, center={1, 5, 6, 10},
-                 height=_auto_h([exp, obs, act]))
+                 height=_height([(F_WIDTHS[7], exp), (F_WIDTHS[8], obs),
+                                 (F_WIDTHS[10], act)]))
 
     r = blank(ws, r, 8)
 
@@ -591,45 +606,46 @@ def build_findings(wb):
 
     # ---------- Section 4: findings
     r = section(ws, r, COLS, "Section 4.  Findings and root cause")
-    r = _hdr(ws, r, ["ID", "Severity", "Finding", "Finding (continued)", "Evidence",
-                     "Evidence (continued)", "Why it explains the reported result",
-                     "Why it explains the reported result (continued)", "Correction",
-                     "Correction (continued)", "Goes to"], fill_hex=NAVY2, height=30)
+    r = _hdr(ws, r, ["ID", "Severity", "Finding", "Finding (cont.)", "Evidence",
+                     "Evidence (cont.)", "Evidence (cont.)",
+                     "Why it explains the reported result",
+                     "Why it explains the reported result (cont.)",
+                     "Correction  —  and the phase it goes to",
+                     "Correction (cont.)"], fill_hex=NAVY2, height=34)
     sev_fill = {"CRITICAL": "F8CBAD", "MAJOR": "FCE4D6", "INFO": "EAECEE"}
-    goes = {"F-01": "Ph2  step 2.2 → 2.6", "F-02": "Ph2  step 2.1", "F-03": "Ph3  night 1–2",
-            "F-04": "Ph4", "F-05": "Sheet 14 pre-req columns + sheet 17 golden rules",
-            "F-06": "All future baselines", "F-07": "Ph2 scheduling", "F-08": "Counter pull before Ph2"}
+    goes = {"F-01": "Ph2 steps 2.2 → 2.6", "F-02": "Ph2 step 2.1", "F-03": "Ph3 nights 1–2",
+            "F-04": "Ph4", "F-05": "Sheet 14 pre-requisite columns + sheet 17 Section 4",
+            "F-06": "Every future baseline", "F-07": "Ph2 scheduling",
+            "F-08": "Counter pull before Ph2 sign-off"}
     for fid, sev, title, ev, why, fix in FINDINGS:
         base = sev_fill[sev]
+        fix_txt = f"{fix}\n→  Goes to:  {goes[fid]}"
         put(ws, r, 1, fid, size=10, bold=True, fill_hex=base, h="center", v="center", border=True)
         put(ws, r, 2, sev, size=9, bold=True, fill_hex=base, h="center", v="center", border=True)
-        merge(ws, r, 3, r, 4)
-        put(ws, r, 3, title, size=9, bold=True, fill_hex=base, h="left", v="top", border=True)
-        ws.cell(r, 4).border = thin
-        merge(ws, r, 5, r, 6)
-        put(ws, r, 5, ev, size=8, fill_hex=WHITE, h="left", v="top", border=True)
-        ws.cell(r, 6).border = thin
-        merge(ws, r, 7, r, 8)
-        put(ws, r, 7, why, size=8, fill_hex="FFF2CC", h="left", v="top", border=True)
-        ws.cell(r, 8).border = thin
-        merge(ws, r, 9, r, 10)
-        put(ws, r, 9, fix, size=8, fill_hex=PALE_GREEN, h="left", v="top", border=True)
-        ws.cell(r, 10).border = thin
-        put(ws, r, 11, goes[fid], size=8, bold=True, fill_hex=BLUE_HDR, color=WHITE,
-            h="left", v="top", border=True)
-        ws.row_dimensions[r].height = _auto_h([ev, why, fix], base=44, per=150, step=13, cap=150)
+        for c1, c2, txt, fh, sz, bold in (
+            (3, 4, title, base, 9, True),
+            (5, 7, ev, WHITE, 8, False),
+            (8, 9, why, "FFF2CC", 8, False),
+            (10, 11, fix_txt, PALE_GREEN, 8, False),
+        ):
+            merge(ws, r, c1, r, c2)
+            put(ws, r, c1, txt, size=sz, bold=bold, fill_hex=fh, h="left", v="top", border=True)
+            for c in range(c1 + 1, c2 + 1):
+                ws.cell(r, c).border = thin
+        ws.row_dimensions[r].height = _height(
+            [(_w(F_WIDTHS, 3, 4), title), (_w(F_WIDTHS, 5, 7), ev),
+             (_w(F_WIDTHS, 8, 9), why), (_w(F_WIDTHS, 10, 11), fix_txt)])
         r += 1
 
     r = blank(ws, r, 8)
 
     # ---------- Section 5: rules that were broken
     r = section(ws, r, COLS, "Section 5.  Execution rules that were broken  (and the fix in v7.0)")
-    r = _hdr(ws, r, ["SN", "Rule in the workbook", "Rule in the workbook (continued)",
-                     "What the Ph1 work order did instead",
-                     "What the Ph1 work order did instead (continued)", "Consequence",
-                     "Consequence (continued)", "Fix now in place",
-                     "Fix now in place (continued)", "Where", "Where (continued)"],
-             fill_hex="C65911", height=30)
+    r = _hdr(ws, r, ["SN", "Rule in the workbook", "Rule (cont.)",
+                     "What the Ph1 work order did instead", "(cont.)", "Consequence",
+                     "Consequence (cont.)", "Consequence (cont.)", "Fix now in place",
+                     "Fix (cont.)", "Where to find it"],
+             fill_hex="C65911", height=34)
     breaks = [
         ("Send one parameter / one switch per MML line.",
          "Four switches were bundled into a single MOD NRDUCELLBEAMALGO.",
@@ -665,13 +681,16 @@ def build_findings(wb):
     for i, (rule, did, cons, fix, where) in enumerate(breaks, 1):
         base = alt_fill(i)
         put(ws, r, 1, i, size=9, bold=True, fill_hex=base, h="center", v="center", border=True)
-        for c1, c2, txt, fh, bold in ((2, 3, rule, PALE_GREEN, True), (4, 5, did, "F8CBAD", False),
-                                      (6, 7, cons, "FFF2CC", False), (8, 9, fix, "D6EAF8", False),
-                                      (10, 11, where, base, True)):
-            merge(ws, r, c1, r, c2)
+        spans = ((2, 3, rule, PALE_GREEN, True), (4, 5, did, "F8CBAD", False),
+                 (6, 8, cons, "FFF2CC", False), (9, 10, fix, "D6EAF8", False),
+                 (11, 11, where, base, True))
+        for c1, c2, txt, fh, bold in spans:
+            merge(ws, r, c1, r, c2) if c2 > c1 else None
             put(ws, r, c1, txt, size=8, bold=bold, fill_hex=fh, h="left", v="top", border=True)
-            ws.cell(r, c2).border = thin
-        ws.row_dimensions[r].height = _auto_h([rule, did, cons, fix], base=40, per=100, step=12, cap=110)
+            for c in range(c1 + 1, c2 + 1):
+                ws.cell(r, c).border = thin
+        ws.row_dimensions[r].height = _height(
+            [(_w(F_WIDTHS, c1, c2), txt) for c1, c2, txt, _, _ in spans])
         r += 1
 
     r = blank(ws, r, 8)
@@ -738,9 +757,9 @@ def build_action(wb):
         merge(ws, r, 10, r, 11)
         put(ws, r, 10, status, size=10, bold=True, fill_hex=base, h="center", v="center", border=True)
         ws.cell(r, 11).border = thin
-        ws.row_dimensions[r] = ws.row_dimensions[r]
-        ws.row_dimensions[r].height = _auto_h([obj, content, pre, gate, back],
-                                              base=62, per=120, step=13, cap=170)
+        ws.row_dimensions[r].height = _height(
+            [(A_WIDTHS[2], obj), (A_WIDTHS[3], content), (_w(A_WIDTHS, 5, 6), pre),
+             (_w(A_WIDTHS, 7, 8), gate), (A_WIDTHS[8], back)], cap=250)
         r += 1
 
     r = blank(ws, r, 8)
@@ -779,8 +798,10 @@ def build_action(wb):
         merge(ws, r, 10, r, 11)
         put(ws, r, 10, gate, size=8, fill_hex=base, h="left", v="top", border=True)
         ws.cell(r, 11).border = thin
-        ws.row_dimensions[r].height = _auto_h([mml, pre, pre_mml, verify, gate],
-                                              base=54, per=110, step=13, cap=150)
+        ws.row_dimensions[r].height = _height(
+            [(A_WIDTHS[2], mml), (A_WIDTHS[3], pre), (A_WIDTHS[4], pre_mml),
+             (_w(A_WIDTHS, 6, 7), verify), (_w(A_WIDTHS, 8, 9), ctr),
+             (_w(A_WIDTHS, 10, 11), gate)], cap=230)
         r += 1
 
     r = blank(ws, r, 6)
@@ -873,7 +894,9 @@ def build_action(wb):
         put(ws, r, 9, note, size=8, fill_hex=base, h="left", v="top", border=True)
         for c in (10, 11):
             ws.cell(r, c).border = thin
-        ws.row_dimensions[r].height = _auto_h([pre, pre_mml, note], base=40, per=110, step=12, cap=108)
+        ws.row_dimensions[r].height = _height(
+            [(A_WIDTHS[2], sw), (A_WIDTHS[3], pre), (A_WIDTHS[4], pre_mml),
+             (_w(A_WIDTHS, 7, 8), ctr), (_w(A_WIDTHS, 9, 11), note)], cap=170)
         r += 1
 
     r = blank(ws, r, 8)
@@ -932,7 +955,9 @@ def build_action(wb):
         merge(ws, r, 10, r, 11)
         put(ws, r, 10, blocks, size=8, bold=True, fill_hex="F8CBAD", h="left", v="center", border=True)
         ws.cell(r, 11).border = thin
-        ws.row_dimensions[r].height = _auto_h([act, why], base=40, per=100, step=12, cap=90)
+        ws.row_dimensions[r].height = _height(
+            [(_w(A_WIDTHS, 2, 4), act), (_w(A_WIDTHS, 5, 6), why),
+             (_w(A_WIDTHS, 8, 9), before), (_w(A_WIDTHS, 10, 11), blocks)], cap=120)
         r += 1
     return ws
 

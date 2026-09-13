@@ -11,7 +11,7 @@ Combines former sheets 14 (Incon) + 15 (Suggestions) into one sheet:
 No separate dump-incon section — that check lives on the MML row.
 CR01 stays as sheet 15 (was 16). v1–v5 files are unchanged.
 """
-import os, re, shutil, zipfile, sys
+import math, os, re, shutil, zipfile, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from openpyxl import load_workbook
 from openpyxl.styles import Border, Side, Font
@@ -67,6 +67,12 @@ set_layout(False)
 def pad(titles):
     """Pad a header list out to the current sheet width."""
     return list(titles) + [""] * max(0, COLS - len(titles))
+
+
+def wrap_lines(text, width_units, size=8):
+    """Wrapped line count for `text` in a column block `width_units` wide at `size` pt."""
+    cpl = max(8.0, width_units * 11.0 / size * 0.92)
+    return sum(max(1, math.ceil(len(p) / cpl)) for p in str(text or "").split("\n"))
 
 BLUE_HDR = "5B9BD5"
 YELLOW_HDR = "FFC000"
@@ -888,6 +894,7 @@ def add_box(ws, r, rec, sheet_name):
         for c in range(COL["cmd"] + 1, COL["cmd_end"] + 1):
             ws.cell(r, c).fill = fill(fh)
             ws.cell(r, c).border = thin
+        pre_txt = pre_mml = ""
         if WITH_PREREQ:
             pre_txt, pre_mml = prereq_for(cmd)
             none_pre = pre_txt == PREREQ_NONE[0]
@@ -909,8 +916,15 @@ def add_box(ws, r, rec, sheet_name):
         href_sheet(ws.cell(r, COL["jump"]), rec["jump"], rec["jump"])
         ws.cell(r, COL["jump"]).fill = fill("FFF2CC")
         ws.cell(r, COL["jump_end"]).fill = fill("FFF2CC")
-        ws.row_dimensions[r].height = min(72, max(28, 16 + len(line) // 100 * 12
-                                                 + (12 if WITH_PREREQ else 0)))
+        if WITH_PREREQ:
+            lines = max(wrap_lines(line, sum(WIDTHS[COL["cmd"] - 1:COL["cmd_end"]])),
+                        wrap_lines(pre_txt, WIDTHS[COL["prereq"] - 1]),
+                        wrap_lines(pre_mml, WIDTHS[COL["prereq_mml"] - 1]),
+                        wrap_lines(action, WIDTHS[COL["action"] - 1]),
+                        wrap_lines(ctr, WIDTHS[COL["ctr"] - 1]))
+            ws.row_dimensions[r].height = min(96, max(30, lines * 11.4 + 8))
+        else:
+            ws.row_dimensions[r].height = min(56, max(28, 16 + len(line) // 100 * 12))
         r += 1
     end = r - 1
     box_border(ws, start, end)
