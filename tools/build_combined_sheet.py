@@ -31,6 +31,7 @@ VERSION = "v6.0"
 SHEET_NAME = "14. MIMO Suggest + Incon"  # 24 chars
 FINDINGS_SHEET = "16. Master Findings"  # v7.0
 ACTION_SHEET = "17. Action Plan Ph1-Ph7"  # v7.0
+ROLLBACK_SHEET = "18. Pairing Rollback Pack"  # v8.0
 CR01_OLD = "16. CR01 MIMO Exec Pack"
 CR01_NEW = "15. CR01 MIMO Exec Pack"
 OLD14 = "14. MIMO Incon Report"
@@ -944,7 +945,10 @@ def patch_cover(wb):
                      "first)” and “Pre-requisite MML (run BEFORE this line)”, so the sequence is on the row itself. "
                      "This is the fix for the 10-Sep RETCODE 2147616329 rejection (BEAM_TRACKING_SW needs "
                      "DlCoverageAlgoSwitch=SUPER_COVERAGE_SW-1 first). New sheet 16 = Master Findings of the Ph1 trial "
-                     f"(10–11 Sep 2026). New sheet 17 = Action Plan Ph1…Ph7. File: MIMO_Deployment_{VERSION}.xlsx")
+                     f"(10–11 Sep 2026). New sheet 17 = Action Plan Ph1…Ph7"
+                     + (" · New sheet 18 = sequenced pairing rollback MML (SRS_IC first, then the two DL MU gates)."
+                        if VERSION.startswith("v8") else "")
+                     + f" File: MIMO_Deployment_{VERSION}.xlsx")
     else:
         r = section(ws, r, 10, "v6.0 — dump status sits on each suggestion MML row (no separate incon section)")
         r = note_bar(ws, r, 10,
@@ -975,6 +979,12 @@ def patch_cover(wb):
                        "Ph1 complete; Ph2 fix + re-run the rejected MML in sequence; Ph3…Ph7 with KPI exit gates"]
                       + [""] * 6, fills=[PALE_GREEN] * 10, height=34)
         merge(ws, r - 1, 4, r - 1, 10)
+        if VERSION.startswith("v8"):
+            r = table_row(ws, r,
+                          ["18", ROLLBACK_SHEET, "Pairing recovery after Ph1",
+                           "RB-1 SRS_IC_SW-0 tonight; RB-2/3 DL MU gates only if pairing stays down; copy-paste MML"]
+                          + [""] * 6, fills=["F8CBAD"] * 10, height=34)
+            merge(ws, r - 1, 4, r - 1, 10)
     return r
 
 
@@ -1283,7 +1293,7 @@ def main(out=None, zip_out=None, with_prereq=False, extra=None, version="v6.0"):
     append_counters_to_all_sheets(wb)
     colors = ["1F4E79", "2E75B6", "0D7377", "C00000", "C65911", "548235",
               "7030A0", "1F4E79", "2E75B6", "0D7377", "C00000", "C65911",
-              "548235", "7030A0", "C65911", "C00000", "A93226", "548235"]
+              "548235", "7030A0", "C65911", "C00000", "A93226", "548235", "C00000"]
     for i, ws in enumerate(wb.worksheets):
         ws.sheet_view.showGridLines = False
         if i < len(colors):

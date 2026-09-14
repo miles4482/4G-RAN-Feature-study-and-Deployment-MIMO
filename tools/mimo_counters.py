@@ -516,6 +516,31 @@ COUNTERS = {
          "Standing safety gate in every phase.",
          "Rollback trigger for the whole night, not just one switch."),
     ],
+    "18. Pairing Rollback Pack": [
+        ("N.ChMeas.MIMO.DL.MuPairing.kLayer.RB  (k = 1…16)", "DL MU paired RB per layer",
+         "PRIMARY recovery KPI. Same family as the Ph1 pivot.",
+         "RB-1 gate after 24 h: all-layer ≥ 14.7 RB (90 % of 9 Sep ≈ 16.3) AND high-layer (≥4L) ≥ 8.7. "
+         "If the gate is met, STOP — do not send RB-2."),
+        ("N.ChMeas.MIMO.DL.Pair.Layer.Avg / Pair.PRB", "Average DL MU paired layers",
+         "Cross-check that the per-layer RB recovery is not a reporting artefact.",
+         "Should move with the kLayer.RB family, not against it."),
+        ("N.SRS.NI.Avg / N.UL.SRS.PreSINR.Index*", "SRS NI / pre-SINR",
+         "Proves RB-1 (SRS_IC_SW-0) actually cleaned the SRS input.",
+         "If NI is still high after RB-1, RB-5 (SRS_JOINT_PC_SW-0) becomes the next candidate — "
+         "not the DL MU gates."),
+        ("N.DL.SCH.*.ErrTB.Ibler / N.DL.SCH.*.TB", "DL IBLER",
+         "Quality gate. Rolling back PRECISE / ANTI_INTRF can raise paired RB and IBLER together.",
+         "If IBLER jumps outside the planned band vs control, restore that night's switch."),
+        ("N.PRB.DL.Used.Avg", "DL PRB load",
+         "Normaliser. Pairing RB scales with offered load.",
+         "Do not credit a rollback if load also jumped."),
+        ("N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "User DL Average Throughput (DU)",
+         "Must not drop while recovering pairing.",
+         "Pass: trial at or above the neighbour-32T control trend."),
+        ("N.UECntx.AbnormRel / HOSR", "Drop / handover",
+         "Standing safety net.",
+         "Any rise vs control → restore that night's switch immediately."),
+    ],
 }
 
 KPI_ROWS = {
@@ -555,6 +580,18 @@ KPI_ROWS = {
         ("DL IBLER", "Σ N.DL.SCH.*.ErrTB.Ibler / Σ N.DL.SCH.*.TB", "%",
          "NOT SUPPLIED. Tells whether the stricter MU gates bought quality for the lost RB."),
     ],
+    "18. Pairing Rollback Pack": [
+        ("DL MU paired RB, all layers", "Σ N.ChMeas.MIMO.DL.MuPairing.{1..16}Layer.RB", "RB",
+         "RB-1 gate: ≥ 14.7 (90 % of the 9 Sep ≈ 16.3 baseline). Stop if met."),
+        ("DL MU paired RB, high layers (≥4L)", "Σ N.ChMeas.MIMO.DL.MuPairing.{4..16}Layer.RB", "RB",
+         "RB-1 gate: ≥ 8.7 (90 % of the 9 Sep ≈ 9.7 baseline). This is the part that collapsed."),
+        ("SRS NI", "N.SRS.NI.Avg", "dBm",
+         "Must fall or hold after SRS_IC_SW-0. If still high, go to RB-5 not RB-2."),
+        ("DL IBLER", "Σ N.DL.SCH.*.ErrTB.Ibler / Σ N.DL.SCH.*.TB", "%",
+         "Must stay inside the planned band when PRECISE / ANTI_INTRF come off."),
+        ("User DL Average Throughput (DU)", "N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "Mbit/s",
+         "Must not drop vs the neighbour-32T control while pairing recovers."),
+    ],
 }
 
 NOTES = {
@@ -581,6 +618,10 @@ NOTES = {
         "One phase per maintenance night, one root cause per phase, and never two suspect switches in the "
         "same window — that rule is what Ph1 broke. Every phase carries its own exit gate; a phase that "
         "misses its gate is rolled back that night and the next phase does not start.",
+    "18. Pairing Rollback Pack":
+        "One switch per night. RB-1 (SRS_IC_SW-0) is the only change tonight. After 24 h of busy-hour "
+        "counters, STOP if pairing is back to ≥90 % of 9 Sep. RB-2 and RB-3 only fire if that gate is missed. "
+        "Never send two rollback lines in the same window — that is how Ph1 became unattributable.",
 }
 
 
@@ -669,7 +710,7 @@ def append_counters_to_all_sheets(wb):
         if "Suggest + Incon" in key:
             # v6.0 is 14 columns, v7.0 adds the two pre-requisite columns
             cols = min(max(ws.max_column or 14, 14), 16)
-        elif key.startswith(("14.", "15.", "16.", "17.")):
+        elif key.startswith(("14.", "15.", "16.", "17.", "18.")):
             cols = 11
         else:
             cols = 10
