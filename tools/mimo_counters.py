@@ -541,6 +541,33 @@ COUNTERS = {
          "Standing safety net.",
          "Any rise vs control → restore that night's switch immediately."),
     ],
+    "19. Pairing Lift Plan": [
+        ("N.ChMeas.MIMO.DL.MuPairing.kLayer.RB  (k = 1…16)", "DL MU paired RB per layer",
+         "NORTH-STAR. Same family as the Ph1 pivot.",
+         "P0 gate: all-layer ≥ 14.7 and ≥4L ≥ 8.8 (90 % of 9 Sep). "
+         "P1–P2 target: exceed 9 Sep (all-layer 16.4, ≥4L 9.8) and first non-zero 8–16 layer RB."),
+        ("N.ChMeas.MIMO.DL.Pair.Layer.Avg / Pair.PRB", "Average DL MU paired layers / paired PRB",
+         "Sister of the kLayer.RB family. Confirms the lift is not a reporting artefact.",
+         "Must move with kLayer.RB, not against it."),
+        ("N.ChMeas.MIMO.DL.Transmission.Layer.Max", "Max DL layers on a PRB",
+         "Proves P1 MMIMO_MULTILAYER_ENHANCE_SW is spending the LAYER_16 quota.",
+         "If this stays flat after P1, stop and check NR0S0DLEPU00 before sending children."),
+        ("N.SRS.NI.Avg / N.UL.SRS.PreSINR.Index*", "SRS NI / pre-SINR",
+         "P0 (SRS_IC rollback) and P2 SRS_MEAS_ACCELERATING.",
+         "NI jump = stop that night."),
+        ("N.DL.SCH.*.ErrTB.Ibler / N.DL.SCH.*.TB", "DL IBLER",
+         "Hard safety gate. Pairing-preferred and BackToSu=0 can raise IBLER with paired RB.",
+         "If IBLER leaves the planned band vs control, restore that night's line."),
+        ("N.PRB.DL.Used.Avg", "DL PRB load",
+         "Normaliser. Pairing RB scales with offered load.",
+         "Do not credit a phase if load also jumped."),
+        ("N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "User DL Average Throughput (DU)",
+         "Must not be sacrificed for pairing.",
+         "Pass: trial at or above the neighbour-32T control. Informational until pairing target is met."),
+        ("N.UECntx.AbnormRel / HOSR", "Drop / handover",
+         "Standing safety net on every night.",
+         "Any rise vs control → restore that night's switch."),
+    ],
 }
 
 KPI_ROWS = {
@@ -592,6 +619,18 @@ KPI_ROWS = {
         ("User DL Average Throughput (DU)", "N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "Mbit/s",
          "Must not drop vs the neighbour-32T control while pairing recovers."),
     ],
+    "19. Pairing Lift Plan": [
+        ("DL MU paired RB, all layers", "Σ N.ChMeas.MIMO.DL.MuPairing.{1..16}Layer.RB", "RB",
+         "P0: ≥ 14.7. P1–P2: > 16.4 (beat the 9 Sep baseline)."),
+        ("DL MU paired RB, high layers (≥4L)", "Σ N.ChMeas.MIMO.DL.MuPairing.{4..16}Layer.RB", "RB",
+         "P0: ≥ 8.8. P1–P2: > 9.8. This is the part that collapsed and the part multilayer spends."),
+        ("8–16 layer paired RB", "Σ N.ChMeas.MIMO.DL.MuPairing.{8..16}Layer.RB", "RB",
+         "Was ~0 on this cluster. First appearance after P1 is the proof the LAYER_16 quota is in use."),
+        ("Max DL layers on a PRB", "N.ChMeas.MIMO.DL.Transmission.Layer.Max", "layers",
+         "Must rise after MMIMO_MULTILAYER_ENHANCE_SW. Flat = licence or master not active."),
+        ("DL IBLER", "Σ N.DL.SCH.*.ErrTB.Ibler / Σ TB", "%",
+         "Hard gate. Pairing lift that buys IBLER is a fail."),
+    ],
 }
 
 NOTES = {
@@ -622,6 +661,10 @@ NOTES = {
         "One switch per night. RB-1 (SRS_IC_SW-0) is the only change tonight. After 24 h of busy-hour "
         "counters, STOP if pairing is back to ≥90 % of 9 Sep. RB-2 and RB-3 only fire if that gate is missed. "
         "Never send two rollback lines in the same window — that is how Ph1 became unattributable.",
+    "19. Pairing Lift Plan":
+        "North-star is N.ChMeas.MIMO.DL.MuPairing, not DL user throughput. Recover (P0) before you add "
+        "anything. Then spend the LAYER_16 quota with MMIMO_MULTILAYER_ENHANCE_SW and MU_MIMO_PAIRING_PREFERRED_SW. "
+        "Park beam-tracking / SRS-weight until pairing is above the 9 Sep baseline — those bits move MCS, not paired RB.",
 }
 
 
@@ -710,7 +753,7 @@ def append_counters_to_all_sheets(wb):
         if "Suggest + Incon" in key:
             # v6.0 is 14 columns, v7.0 adds the two pre-requisite columns
             cols = min(max(ws.max_column or 14, 14), 16)
-        elif key.startswith(("14.", "15.", "16.", "17.", "18.")):
+        elif key.startswith(("14.", "15.", "16.", "17.", "18.", "19.")):
             cols = 11
         else:
             cols = 10

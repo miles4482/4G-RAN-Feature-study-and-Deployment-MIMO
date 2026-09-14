@@ -75,15 +75,18 @@ def main():
     # v5.0 is frozen (dump as a separate Section 2). v6.0 merges dump onto each MML.
     # v7.0 = v6 + pre-requisite columns on every MML + Master Findings + Action Plan.
     # v8.0 = v7 + sequenced pairing rollback pack (SRS_IC first).
+    # v9.0 = pairing lift plan (N.ChMeas.MIMO.DL.MuPairing as north-star).
     from build_combined_sheet import main as build_v6
     from build_v7_findings import main as build_v7
     from build_v8_rollback import main as build_v8
+    from build_v9_pairing_plan import main as build_v9
     build_v2()
     build_v3()
     build_v4()
     build_v6()
     build_v7()
     build_v8()
+    build_v9()
 
 
 if __name__ == "__main__":
