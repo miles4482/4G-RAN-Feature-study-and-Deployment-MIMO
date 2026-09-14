@@ -568,6 +568,34 @@ COUNTERS = {
          "Standing safety net on every night.",
          "Any rise vs control → restore that night's switch."),
     ],
+    "20. Pairing + DL Tput Plan": [
+        ("N.ChMeas.MIMO.DL.MuPairing.kLayer.RB  (k = 1…16)", "DL MU paired RB per layer",
+         "TARGET 1. Same family as the Ph1 pivot.",
+         "P0 recover: all-layer ≥ 14.7 and ≥4L ≥ 8.8. P2 success: beat 9 Sep (16.4 / 9.8) and first "
+         "non-zero 8–16 layer RB. Pairing-up with tput-down is a fail."),
+        ("N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "User DL Average Throughput (DU)",
+         "TARGET 2. The KPI that stayed flat in Ph1 because the weight/tracking levers were rejected.",
+         "P0: must not drop vs control. P1: MCS upshift and tput ≥ control (this is the first real "
+         "test of SRS_WEIGHT_ESTIMATE / BEAM_TRACKING). P2: tput ≥ post-P1."),
+        ("N.ChMeas.PDSCH.MCS.k / N.PDSCH.InitTbDl.Rank*", "DL MCS / rank mix",
+         "Proves P1 actually landed. Weights and tracking move MCS, not paired-RB count.",
+         "Expect MCS upshift on mobility samples after P1.4. Flat MCS = the MOD did not take."),
+        ("N.ChMeas.MIMO.DL.Transmission.Layer.Max", "Max DL layers on a PRB",
+         "Proves P2 multilayer master is spending LAYER_16.",
+         "Flat after P2.1 → stop, check NR0S0DLEPU00, do not send PAIRING_PREFERRED."),
+        ("N.SRS.NI.Avg / N.UL.SRS.PreSINR.Index*", "SRS NI / pre-SINR",
+         "P0 SRS_IC rollback. Healthy SRS is the input to both pairing and SRS-based weights.",
+         "Do not start P1 while NI is still high — weights would bake a bad estimate into DL BF."),
+        ("N.DL.SCH.*.ErrTB.Ibler / N.DL.SCH.*.TB", "DL IBLER",
+         "Hard gate on every night. Dual-target fail if pairing or tput is bought with IBLER.",
+         "Restore that night's line if IBLER leaves the planned band vs control."),
+        ("N.PRB.DL.Used.Avg", "DL PRB load",
+         "Normaliser for both pairing RB and user tput.",
+         "Do not credit either KPI if load also jumped."),
+        ("N.UECntx.AbnormRel / HOSR", "Drop / handover",
+         "Standing safety, especially after SUPER_COVERAGE_SW and BEAM_TRACKING_SW.",
+         "Any rise vs control → restore that night's switch."),
+    ],
 }
 
 KPI_ROWS = {
@@ -631,6 +659,18 @@ KPI_ROWS = {
         ("DL IBLER", "Σ N.DL.SCH.*.ErrTB.Ibler / Σ TB", "%",
          "Hard gate. Pairing lift that buys IBLER is a fail."),
     ],
+    "20. Pairing + DL Tput Plan": [
+        ("DL MU paired RB, all layers", "Σ N.ChMeas.MIMO.DL.MuPairing.{1..16}Layer.RB", "RB",
+         "P0 ≥ 14.7. P2 > 16.4. Must not fall in P1."),
+        ("DL MU paired RB, high layers (≥4L)", "Σ N.ChMeas.MIMO.DL.MuPairing.{4..16}Layer.RB", "RB",
+         "P0 ≥ 8.8. P2 > 9.8. The part that collapsed in Ph1."),
+        ("User DL Average Throughput (DU)", "N.ThpVol.DL / N.RLC.ThpTime.DL.Cell", "Mbit/s",
+         "P0: no drop vs control. P1: first lift expected. P2: hold or rise vs post-P1."),
+        ("DL MCS mix", "N.ChMeas.PDSCH.MCS.k", "share",
+         "P1 proof. Upshift after SRS_WEIGHT_ESTIMATE / BEAM_TRACKING."),
+        ("DL IBLER", "Σ N.DL.SCH.*.ErrTB.Ibler / Σ TB", "%",
+         "Hard gate on both targets. Pairing↑ + IBLER↑ = fail."),
+    ],
 }
 
 NOTES = {
@@ -665,6 +705,10 @@ NOTES = {
         "North-star is N.ChMeas.MIMO.DL.MuPairing, not DL user throughput. Recover (P0) before you add "
         "anything. Then spend the LAYER_16 quota with MMIMO_MULTILAYER_ENHANCE_SW and MU_MIMO_PAIRING_PREFERRED_SW. "
         "Park beam-tracking / SRS-weight until pairing is above the 9 Sep baseline — those bits move MCS, not paired RB.",
+    "20. Pairing + DL Tput Plan":
+        "Two success KPIs, equal weight: N.ChMeas.MIMO.DL.MuPairing AND User DL Average Throughput. "
+        "P0 recovers pairing. P1 lands the DL-tput levers Ph1 never activated. P2 spends LAYER_16 to raise "
+        "pairing above 9 Sep. Pairing-up with tput-down, or tput-up with pairing-down, is a fail of that night.",
 }
 
 
@@ -753,7 +797,7 @@ def append_counters_to_all_sheets(wb):
         if "Suggest + Incon" in key:
             # v6.0 is 14 columns, v7.0 adds the two pre-requisite columns
             cols = min(max(ws.max_column or 14, 14), 16)
-        elif key.startswith(("14.", "15.", "16.", "17.", "18.", "19.")):
+        elif key.startswith(("14.", "15.", "16.", "17.", "18.", "19.", "20.")):
             cols = 11
         else:
             cols = 10

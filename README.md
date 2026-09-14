@@ -4,9 +4,10 @@ Combined **5G MIMO deployment workbook** extracted from the eight Huawei 5G RAN1
 
 ## Download (do not use GitHub Raw for `.xlsx`)
 
-- **v9.0 (current):** [MIMO_Deployment_v9.0.zip](MIMO_Deployment_v9.0.zip) → **Download raw file**, then unzip.
-  - New sheet 19 **Pairing Lift Plan** — north-star KPI `N.ChMeas.MIMO.DL.MuPairing`. P0 recover (`SRS_IC_SW-0`) → P1 multilayer master → P2 pairing-preferred → P3 SU-fallback 0 → P4 AHR Capacity Upgrade. Beam tracking / SRS weights parked until pairing is above the 9 Sep baseline.
-- Or [MIMO_Deployment_v9.0.xlsx](MIMO_Deployment_v9.0.xlsx) via **Download raw file**
+- **v10.0 (current):** [MIMO_Deployment_v10.0.zip](MIMO_Deployment_v10.0.zip) → **Download raw file**, then unzip.
+  - New sheet 20 **Pairing + DL Tput Plan** — two equal targets: raise `N.ChMeas.MIMO.DL.MuPairing` AND User DL Average Throughput. P0 recover pairing (`SRS_IC_SW-0`) → P1 land the rejected DL-tput levers (`SRS_WEIGHT_ESTIMATE` / `BEAM_TRACKING` with `SUPER_COVERAGE` first) → P2 spend LAYER_16 (`MMIMO_MULTILAYER_ENHANCE` + `PAIRING_PREFERRED`) → P3 hold pairs. A night that raises one KPI by lowering the other is a fail.
+- Or [MIMO_Deployment_v10.0.xlsx](MIMO_Deployment_v10.0.xlsx) via **Download raw file**
+- v9.0: [MIMO_Deployment_v9.0.zip](MIMO_Deployment_v9.0.zip) (pairing-only lift plan; DL-tput levers parked)
 - v8.0: [MIMO_Deployment_v8.0.zip](MIMO_Deployment_v8.0.zip) (pairing rollback pack)
 - v7.0: [MIMO_Deployment_v7.0.zip](MIMO_Deployment_v7.0.zip) (pre-requisite columns + Master Findings + Action Plan)
   - Sheet 14 Section 1: every MML row now carries **Pre-requisite switch / parameter (must be ON first)** and **Pre-requisite MML (run BEFORE this line)**, so the enable order is on the row itself.
@@ -41,9 +42,10 @@ Deploy **Step1 → Step11** in order. Later Massive MIMO features list earlier M
 | 16 | Master Findings | Ph1 trial 10–11 Sep 2026: executed vs rejected switches, DL MU pairing per layer for 5/9/10/11/12 Sep, findings F-01…F-08, verdict per switch |
 | 17 | Action Plan Ph1-Ph7 | Ph1 complete · Ph2 corrective MML sequence · Ph3…Ph7 with pre-requisites, exit KPI gates and rollback |
 | 18 | Pairing Rollback Pack | RB-1 `SRS_IC_SW-0` tonight · RB-2/3 DL MU gates only if pairing stays down · keep-ON list · restore MML |
-| 19 | Pairing Lift Plan | North-star `N.ChMeas.MIMO.DL.MuPairing` · P0 recover → P1 multilayer master → P2 pairing-preferred → P3 BackToSu=0 → P4 AHR CU |
+| 19 | Pairing Lift Plan | Pairing-only variant · P0 recover → P1 multilayer → P2 pairing-preferred → P3 BackToSu=0 → P4 AHR CU |
+| 20 | Pairing + DL Tput Plan | Dual target · P0 recover pairing → P1 land rejected tput levers → P2 multilayer pairing lift → P3 hold pairs |
 
-Every MML table uses a **Seq** column (activation `n.1, n.2, …` then deactivation `n.D.*`), matching the CA workbook. **v6.0** puts dump enabled-or-not on each suggestion MML. **v7.0** adds the pre-requisite columns. **v8.0** adds the pairing rollback pack. **v9.0** adds the pairing lift plan (`N.ChMeas.MIMO.DL.MuPairing` as north-star). Every step sheet still ends with **Performance and Monitoring Counter**.
+Every MML table uses a **Seq** column (activation `n.1, n.2, …` then deactivation `n.D.*`), matching the CA workbook. **v6.0** puts dump enabled-or-not on each suggestion MML. **v7.0** adds the pre-requisite columns. **v8.0** adds the pairing rollback pack. **v9.0** is the pairing-only lift plan. **v10.0** is the current action plan: raise `N.ChMeas.MIMO.DL.MuPairing` **and** DL user throughput. Every step sheet still ends with **Performance and Monitoring Counter**.
 
 ## Why the pre-requisite columns exist
 
@@ -61,7 +63,7 @@ RETCODE = 2147616329
 ## How to regenerate
 
 ```bash
-python3 tools/build_mimo_workbook.py          # v1 + v2.0 + v3.0 + v4.0 + v6.0 + v7.0 + v8.0 + v9.0
+python3 tools/build_mimo_workbook.py          # v1 + v2.0 + v3.0 + v4.0 + v6.0 + v7.0 + v8.0 + v9.0 + v10.0
 python3 tools/build_incon_report.py           # v2.0 only (needs v1 xlsx)
 python3 tools/build_suggestions_sheet.py      # v3.0 only (needs v2.0 xlsx)
 python3 tools/build_cr01_sheet.py             # v4.0 only (needs v3.0 xlsx)
@@ -69,4 +71,5 @@ python3 tools/build_combined_sheet.py         # v6.0 only (needs v4.0 xlsx)
 python3 tools/build_v7_findings.py            # v7.0 only (needs v4.0 xlsx)
 python3 tools/build_v8_rollback.py            # v8.0 only (needs v4.0 xlsx)
 python3 tools/build_v9_pairing_plan.py        # v9.0 only (needs v4.0 xlsx)
+python3 tools/build_v10_dual_plan.py          # v10.0 only (needs v4.0 xlsx)
 ```
